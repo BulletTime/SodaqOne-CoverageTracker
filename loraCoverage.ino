@@ -20,7 +20,7 @@ AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
 LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 THE SOFTWARE.
- */
+*/
  
 #include <Arduino.h>
 #include <Sodaq_RN2483_internal.h>
@@ -29,9 +29,9 @@ THE SOFTWARE.
 #include <Utils.h>
 
 #define DEBUG
-#define DEBUGLORA
+//#define DEBUGLORA
 #define DEBUGGPS
-//#define RESEARCH
+#define RESEARCH
 
 #define LOWPOWER false
 #define MINNUMSAT 4
@@ -249,8 +249,8 @@ void setupMode() {
 #ifdef DEBUG
         SerialUSB.println("mode: manual..");
 #endif
-        start = millis();
         modeState = MODE_MANUAL_W;
+        start = millis();
         break;
       }
       case MODE_MANUAL_W: {
@@ -266,6 +266,7 @@ void setupMode() {
         mode = WALKING;
         setLedColor(MAGENTA);
         modeState = MODE_WALKING_W;
+        start = millis();
 #ifdef DEBUG
         SerialUSB.println("mode: walking..");
 #endif
