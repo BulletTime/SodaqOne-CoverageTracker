@@ -30,7 +30,7 @@ THE SOFTWARE.
 
 #define DEBUG
 //#define DEBUGLORA
-#define DEBUGGPS
+//#define DEBUGGPS
 #define RESEARCH
 
 #define LOWPOWER false
@@ -38,7 +38,8 @@ THE SOFTWARE.
 #define SIZE 7
 #define GPSTIMEOUT 60000UL
 #define CONFIRMMODETIMEOUT 10000UL
-#define WALKINGTIMEOUT 10000UL
+#define CONFIRMSFTIMEOUT 10000UL
+#define WALKINGTIMEOUT 30000UL
 
 #define SerialLoRa Serial1
 #define BAUDRATE 57600
@@ -90,16 +91,37 @@ enum mode_state {
   MODE_SET_W,
 };
 
+enum sf_state {
+  SF_IDLE = 0,
+  SF_IDLE_W,
+  SF_7,
+  SF_7_W,
+  SF_8,
+  SF_8_W,
+  SF_9,
+  SF_9_W,
+  SF_10,
+  SF_10_W,
+  SF_11,
+  SF_11_W,
+  SF_12,
+  SF_12_W,
+  SF_SET,
+  SF_SET_W,
+};
+
 volatile bool buttonFlag;
 volatile bool buttonState;
 
 static bool isModeInitialized;
+static bool isSFInitialized;
 static bool isLoRaInitialized;
 static bool isGPSInitialized;
 
 main_state mState;
 mode_state modeState;
 Mode mode;
+sf_state sfState;
 bool isAdrOn = false;
 uint8_t defaultLoRaPort = 0;
 uint8_t spreadingFactor = 12  ;
@@ -110,6 +132,7 @@ void setupButton();
 bool setupGPS();
 bool setupLoRa();
 void setupMode();
+void setupSF();
 void loop();
 void buttonHandler();
 bool transmit(uint8_t*, uint8_t, int16_t);
@@ -121,8 +144,8 @@ void setup() {
   // show that the device is in config mode
   setLedColor(RED);
 
-  while ((!SerialUSB) && (millis() < 30000)) {
-    // Wait for SerialUSB or start after 30 seconds
+  while ((!SerialUSB) && (millis() < 10000)) {
+    // Wait for SerialUSB or start after 10 seconds
   }
 
   // setup serial connection to usb
@@ -136,6 +159,9 @@ void setup() {
 
   // setup mode
   setupMode();
+
+  // setup sf
+  setupSF();
 
   // setup lora connection
   isLoRaInitialized = setupLoRa();
@@ -198,15 +224,15 @@ bool setupLoRa() {
 
 // disbable duty cycle limits
 #ifdef RESEARCH
-  LoRaBee.sendCommand("mac set ch dcycle 0 3");
-  LoRaBee.sendCommand("mac set ch dcycle 1 3");
-  LoRaBee.sendCommand("mac set ch dcycle 2 3");
-  LoRaBee.sendCommand("mac set ch dcycle 3 24");
-  LoRaBee.sendCommand("mac set ch dcycle 4 24");
-  LoRaBee.sendCommand("mac set ch dcycle 5 24");
-  LoRaBee.sendCommand("mac set ch dcycle 6 24");
-  LoRaBee.sendCommand("mac set ch dcycle 7 24");
-  LoRaBee.sendCommand("mac set ch dcycle 8 24");
+  LoRaBee.sendCommand("mac set ch dcycle 0 7");
+  LoRaBee.sendCommand("mac set ch dcycle 1 7");
+  LoRaBee.sendCommand("mac set ch dcycle 2 7");
+  LoRaBee.sendCommand("mac set ch dcycle 3 7");
+  LoRaBee.sendCommand("mac set ch dcycle 4 7");
+  LoRaBee.sendCommand("mac set ch dcycle 5 7");
+  LoRaBee.sendCommand("mac set ch dcycle 6 7");
+  LoRaBee.sendCommand("mac set ch dcycle 7 7");
+  LoRaBee.sendCommand("mac set ch dcycle 8 7");
 #endif
 
   if (result) {
@@ -298,6 +324,164 @@ void setupMode() {
       }
     }
   }  
+}
+
+void setupSF() {
+  static unsigned long start;
+  
+#ifdef DEBUG
+  SerialUSB.println("sf selection:");
+  SerialUSB.println("[press the button to switch between sf's");
+  SerialUSB.println("wait 10 seconds to confirm the sf]");
+#endif
+
+  while (!isSFInitialized) {
+    switch(sfState) {
+      case SF_IDLE: {
+        sfState = SF_IDLE_W;
+        break;
+      }
+      case SF_IDLE_W: {
+        sfState = SF_7;
+        break;
+      }
+      case SF_7: {
+        spreadingFactor = 7;
+#ifdef DEBUG
+        SerialUSB.print("sf: ");
+        SerialUSB.println(spreadingFactor);
+#endif
+        blinkLedColor(YELLOW, spreadingFactor - 6);
+        sfState = SF_7_W;
+        start = millis();
+        break;
+      }
+      case SF_7_W: {
+        if (buttonFlag) {
+          sfState = SF_8;
+          buttonFlag = false;
+        } else if (millis() >= start + CONFIRMSFTIMEOUT) {
+          sfState = SF_SET;
+        }
+        break;
+      }
+      case SF_8: {
+        spreadingFactor = 8;
+#ifdef DEBUG
+        SerialUSB.print("sf: ");
+        SerialUSB.println(spreadingFactor);
+#endif
+        blinkLedColor(YELLOW, spreadingFactor - 6);
+        sfState = SF_8_W;
+        start = millis();
+        break;
+      }
+      case SF_8_W: {
+        if (buttonFlag) {
+          sfState = SF_9;
+          buttonFlag = false;
+        } else if (millis() >= start + CONFIRMSFTIMEOUT) {
+          sfState = SF_SET;
+        }
+        break;
+      }
+      case SF_9: {
+        spreadingFactor = 9;
+#ifdef DEBUG
+        SerialUSB.print("sf: ");
+        SerialUSB.println(spreadingFactor);
+#endif
+        blinkLedColor(YELLOW, spreadingFactor - 6);
+        sfState = SF_9_W;
+        start = millis();
+        break;
+      }
+      case SF_9_W: {
+        if (buttonFlag) {
+          sfState = SF_10;
+          buttonFlag = false;
+        } else if (millis() >= start + CONFIRMSFTIMEOUT) {
+          sfState = SF_SET;
+        }
+        break;
+      }
+      case SF_10: {
+        spreadingFactor = 10;
+#ifdef DEBUG
+        SerialUSB.print("sf: ");
+        SerialUSB.println(spreadingFactor);
+#endif
+        blinkLedColor(YELLOW, spreadingFactor - 6);
+        sfState = SF_10_W;
+        start = millis();
+        break;
+      }
+      case SF_10_W: {
+        if (buttonFlag) {
+          sfState = SF_11;
+          buttonFlag = false;
+        } else if (millis() >= start + CONFIRMSFTIMEOUT) {
+          sfState = SF_SET;
+        }
+        break;
+      }
+      case SF_11: {
+        spreadingFactor = 11;
+#ifdef DEBUG
+        SerialUSB.print("sf: ");
+        SerialUSB.println(spreadingFactor);
+#endif
+        blinkLedColor(YELLOW, spreadingFactor - 6);
+        sfState = SF_11_W;
+        start = millis();
+        break;
+      }
+      case SF_11_W: {
+        if (buttonFlag) {
+          sfState = SF_12;
+          buttonFlag = false;
+        } else if (millis() >= start + CONFIRMSFTIMEOUT) {
+          sfState = SF_SET;
+        }
+        break;
+      }
+      case SF_12: {
+        spreadingFactor = 12;
+#ifdef DEBUG
+        SerialUSB.print("sf: ");
+        SerialUSB.println(spreadingFactor);
+#endif
+        blinkLedColor(YELLOW, spreadingFactor - 6);
+        sfState = SF_12_W;
+        start = millis();
+        break;
+      }
+      case SF_12_W: {
+        if (buttonFlag) {
+          sfState = SF_7;
+          buttonFlag = false;
+        } else if (millis() >= start + CONFIRMSFTIMEOUT) {
+          sfState = SF_SET;
+        }
+        break;
+      }
+      case SF_SET: {
+#ifdef DEBUG
+        SerialUSB.println("sf configured");
+#endif
+        isSFInitialized = true;
+        blinkLedColor(GREEN, 3);
+        sfState = SF_SET_W;
+        break;
+      }
+      case SF_SET_W: {
+        break;
+      }
+      default: {
+        setLedColor(RED);
+      }
+    }
+  }
 }
 
 void loop() {
