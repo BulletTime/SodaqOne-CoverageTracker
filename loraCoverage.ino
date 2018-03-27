@@ -1,715 +1,542 @@
 /*
-The MIT License (MIT)
+  The MIT License (MIT)
 
-Copyright © 2018 Sven Agneessens <sven.agneessens@gmail.com>
+  Copyright © 2018 Sven Agneessens <sven.agneessens@gmail.com>
 
-Permission is hereby granted, free of charge, to any person obtaining a copy
-of this software and associated documentation files (the "Software"), to deal
-in the Software without restriction, including without limitation the rights
-to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
-copies of the Software, and to permit persons to whom the Software is
-furnished to do so, subject to the following conditions:
+  Permission is hereby granted, free of charge, to any person obtaining a copy
+  of this software and associated documentation files (the "Software"), to deal
+  in the Software without restriction, including without limitation the rights
+  to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+  copies of the Software, and to permit persons to whom the Software is
+  furnished to do so, subject to the following conditions:
 
-The above copyright notice and this permission notice shall be included in
-all copies or substantial portions of the Software.
+  The above copyright notice and this permission notice shall be included in
+  all copies or substantial portions of the Software.
 
-THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
-IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
-AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
-LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
-OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
-THE SOFTWARE.
+  THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+  IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+  FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+  AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+  LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+  OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
+  THE SOFTWARE.
 */
- 
+
 #include <Arduino.h>
-#include <Sodaq_RN2483_internal.h>
-#include <Sodaq_RN2483.h>
-#include <Sodaq_UBlox_GPS.h>
-#include <Utils.h>
+#include <Wire.h>
+#include "Enums.h"
+#include "LedColor.h"
+#include "LoRaHelper.h"
+#include "RTCTimer.h"
+#include "RTCZero.h"
+#include "Sodaq_wdt.h"
+#include "Utils.h"
 
-#define DEBUG
-//#define DEBUGLORA
-//#define DEBUGGPS
-#define RESEARCH
+#define DEBUG false
+#define DEBUG_GPS false
 
-#define LOWPOWER false
-#define MINNUMSAT 4
-#define SIZE 7
-#define GPSTIMEOUT 60000UL
-#define CONFIRMMODETIMEOUT 10000UL
-#define CONFIRMSFTIMEOUT 10000UL
-#define WALKINGTIMEOUT 30000UL
+#define VERSION "0.2.0"
+#define PROJECT_NAME "LoRa Coverage Logger"
+#define STARTUP_DELAY 5000
 
-#define SerialLoRa Serial1
-#define BAUDRATE 57600
+#define GPS true
+#define DEFAULT_TIMEOUT 15000
+#define DEFAULT_MINIMUM_SATELLITES 4
 
-// ABP
-const uint8_t devAddr[4] = { 0x26, 0x01, 0x11, 0x11 };
-const uint8_t appSKey[16] = { 0x9E, 0x92, 0x3F, 0x25, 0x04, 0xB2, 0x7D, 0x25, 0xDB, 0x7A, 0x49, 0xA9, 0xBE, 0x2D, 0x04, 0xBF };
-const uint8_t nwkSKey[16] = { 0x25, 0x5B, 0x17, 0xF5, 0x61, 0x61, 0x73, 0x4C, 0x46, 0xEE, 0xD2, 0x3E, 0xB3, 0xFA, 0x79, 0x2D };
-//uint8_t testPayload[] = { 0X03, 0X0A, 0X39, 0XD7, 0X00, 0X47, 0XEC, 0X91 };
+#define MAX_RTC_EPOCH_OFFSET 25
 
-// Led colors
-enum LedColor {
-    NONE = 0,
-    RED,
-    GREEN,
-    BLUE,
-    YELLOW,
-    MAGENTA,
-    CYAN,
-    WHITE,
-};
+#define ACCELEROMETER true
+#define ACCELEROMETER_INTERRUPT true
+#define DEFAULT_MOVEMENT_PERCENTAGE 10
+#define DEFAULT_MOVEMENT_DURATION 50 // d = x * 1/(10 Hz)
 
-// Modes
-enum Mode {
-  MANUAL = 0,
-  WALKING,
-};
+#define LORA true
+#define DEFAULT_TEMPERATURE_SENSOR_OFFSET 33
+#define DEFAULT_LORA_PORT 2
+#define DEFAULT_IS_OTAA_ENABLED 1
+#define DEFAULT_DEVADDR_OR_DEVEUI "0000000000000000"
+#define DEFAULT_APPSKEY_OR_APPEUI "00000000000000000000000000000000"
+#define DEFAULT_NWSKEY_OR_APPKEY "00000000000000000000000000000000"
+#define DEFAULT_ADR_ON 0
+#define DEFAULT_ACK_ON 0
+#define DEFAULT_RECONNECT_ON_TRANSMISSION 1
+#define DEFAULT_REPEAT_TRANSMISSION_COUNT 0
+#define DEFAULT_SPREADING_FACTOR 7
+#define DEFAULT_POWER 1
 
-// States
-enum main_state {
-  IDLE = 0,
-  IDLE_W,
-  GPS_SCAN,
-  GPS_SCAN_W,
-  LORA_TX,
-  LORA_TX_W,
-  ERROR,
-  ERROR_W,
-};
+#define DEBUG_STREAM SerialUSB
+#define CONSOLE_STREAM SerialUSB
+#define LORA_STREAM Serial1
+#define BAUDRATE 115200
 
-enum mode_state {
-  MODE_IDLE = 0,
-  MODE_IDLE_W,
-  MODE_MANUAL,
-  MODE_MANUAL_W,
-  MODE_WALKING,
-  MODE_WALKING_W,
-  MODE_SET,
-  MODE_SET_W,
-};
+#define consolePrint(x) CONSOLE_STREAM.print(x)
+#define consolePrintln(x) CONSOLE_STREAM.println(x)
 
-enum sf_state {
-  SF_IDLE = 0,
-  SF_IDLE_W,
-  SF_7,
-  SF_7_W,
-  SF_8,
-  SF_8_W,
-  SF_9,
-  SF_9_W,
-  SF_10,
-  SF_10_W,
-  SF_11,
-  SF_11_W,
-  SF_12,
-  SF_12_W,
-  SF_SET,
-  SF_SET_W,
-};
+#define debugPrint(x) if (DEBUG) { DEBUG_STREAM.print(x); }
+#define debugPrintln(x) if (DEBUG) { DEBUG_STREAM.println(x); }
 
-volatile bool buttonFlag;
-volatile bool buttonState;
+#ifndef LORA_RESET
+#define LORA_RESET -1
+#endif
 
-static bool isModeInitialized;
-static bool isSFInitialized;
-static bool isLoRaInitialized;
-static bool isGPSInitialized;
+RTCZero rtc;
+RTCTimer timer;
 
-main_state mState;
-mode_state modeState;
-Mode mode;
-sf_state sfState;
-bool isAdrOn = false;
-uint8_t defaultLoRaPort = 0;
-uint8_t spreadingFactor = 12  ;
-uint8_t powerIndex = 1;
+volatile bool minuteFlag;
+volatile bool accelerationFlag;
+
+static uint8_t lastResetCause;
+static bool isRtcInitialized;
+static bool isGpsInitialized;
+static bool isAccelerometerInitialized;
+static bool isDeviceInitialized;
+
+static uint8_t loraHWEui[8];
+static bool isLoraHWEuiInitialized;
 
 void setup();
-void setupButton();
-bool setupGPS();
-bool setupLoRa();
-void setupMode();
-void setupSF();
 void loop();
-void buttonHandler();
-bool transmit(uint8_t*, uint8_t, int16_t);
-void setLoRaActive(bool );
-void setLedColor(LedColor);
-void blinkLedColor(LedColor, uint8_t);
+
+uint32_t getNow();
+void setNow(uint32_t now);
+void initRtc();
+void rtcAlarmHandler();
+void initRtcTimer();
+void resetRtcTimerEvents();
+void setupBOD33();
+void initSleep();
+void initGps();
+void initAccelerometer();
+void accelerometerInt1Handler();
+bool initLora(LoraInitConsoleMessages messages, LoraInitJoin join);
+void systemSleep();
+void runLoraModuleSleepExtendEvent(uint32_t now);
+bool getGpsFix();
+
+static void printCpuResetCause(Stream& stream);
+static void printBootUpMessage(Stream& stream);
 
 void setup() {
-  // show that the device is in config mode
+  // Allow power to remain on
+  pinMode(ENABLE_PIN_IO, OUTPUT);
+  digitalWrite(ENABLE_PIN_IO, HIGH);
+
+  lastResetCause = PM->RCAUSE.reg;
+
+  // In case of reset (this is probably unnecessary)
+  sodaq_wdt_disable();
+
+  // Setup brown-out detection
+  setupBOD33();
+
+  sodaq_wdt_enable(WDT_PERIOD_8X);
+  sodaq_wdt_reset();
+
+  CONSOLE_STREAM.begin(BAUDRATE);
+  if ((long)&CONSOLE_STREAM != (long)&DEBUG_STREAM) {
+    DEBUG_STREAM.begin(BAUDRATE);
+  }
+
   setLedColor(RED);
+  sodaq_wdt_safe_delay(STARTUP_DELAY);
+  printBootUpMessage(CONSOLE_STREAM);
 
-  while ((!SerialUSB) && (millis() < 10000)) {
-    // Wait for SerialUSB or start after 10 seconds
+  initSleep();
+  initRtc();
+
+  Wire.begin();
+
+  // if allowed, init early for faster initial fix
+  if (GPS) {
+    initGps();
+    isGpsInitialized = true;
   }
 
-  // setup serial connection to usb
-  SerialUSB.begin(BAUDRATE);
-  
-  // setup serial connection to RN2483 module
-  SerialLoRa.begin(LoRaBee.getDefaultBaudRate());
-  
-  // setup button
-  setupButton();
+  initLora(LORA_INIT_SHOW_CONSOLE_MESSAGES, LORA_INIT_JOIN);
 
-  // setup mode
-  setupMode();
-
-  // setup sf
-  setupSF();
-
-  // setup lora connection
-  isLoRaInitialized = setupLoRa();
-
-  if (isLoRaInitialized) {
-    setLedColor(YELLOW);
+  if (ACCELEROMETER) {
+    initAccelerometer();
+    isAccelerometerInitialized = true;
   }
 
-  if (LOWPOWER) {
-    setLoRaActive(false);
+  initRtcTimer();
+
+  isDeviceInitialized = true;
+
+  consolePrintln("** Boot-up completed successfully!");
+  sodaq_wdt_reset();
+
+  // disable the USB if not needed for debugging
+  if (!DEBUG || ((long)&DEBUG_STREAM != (long)&SerialUSB)) {
+    consolePrintln("The USB is going to be disabled now.");
+    debugPrintln("The USB is going to be disabled now.");
+
+    SerialUSB.flush();
+    sodaq_wdt_safe_delay(3000);
+    SerialUSB.end();
+    USBDevice.detach();
+    USB->DEVICE.CTRLA.reg &= ~USB_CTRLA_ENABLE; // Disable USB
   }
 
-  // setup gps
-  isGPSInitialized = setupGPS();
-  
-  if (isGPSInitialized) {
+  // disable the debug stream if it is not disabled by the above
+  if (!params.getIsDebugOn() && ((long)&DEBUG_STREAM != (long)&SerialUSB)) {
+    DEBUG_STREAM.flush();
+    DEBUG_STREAM.end();
+  }
+
+  // disable the console stream if it is not disabled by the above
+  if ((long)&CONSOLE_STREAM != (long)&SerialUSB) {
+    CONSOLE_STREAM.flush();
+    CONSOLE_STREAM.end();
+  }
+
+  if (getGpsFix()) {
     setLedColor(GREEN);
+    sodaq_wdt_safe_delay(800);
   }
+}
 
-  SerialUSB.print("device address: ");
-  for (uint8_t i = 0; i < sizeof(devAddr); i++) {
-    if (devAddr[i] < 0x10) {
-      SerialUSB.print("0");
+/**
+ * Returns the current datetime (seconds since unix epoch).
+ */
+uint32_t getNow() {
+    return rtc.getEpoch();
+}
+
+/**
+ * Sets the RTC epoch and "rtcEpochDelta".
+ */
+void setNow(uint32_t newEpoch) {
+    uint32_t currentEpoch = getNow();
+
+    debugPrint("Setting RTC from ");
+    debugPrint(currentEpoch);
+    debugPrint(" to ");
+    debugPrintln(newEpoch);
+
+    rtc.setEpoch(newEpoch);
+
+    timer.adjust(currentEpoch, newEpoch);
+
+    isRtcInitialized = true;
+}
+
+/**
+ * Initializes the RTC.
+ */
+void initRtc() {
+    rtc.begin();
+
+    // Schedule the wakeup interrupt for every minute
+    // Alarm is triggered 1 cycle after match
+    rtc.setAlarmSeconds(59);
+    rtc.enableAlarm(RTCZero::MATCH_SS); // alarm every minute
+
+    // Attach handler
+    rtc.attachInterrupt(rtcAlarmHandler);
+
+    // This sets it to 2000-01-01
+    rtc.setEpoch(0);
+}
+
+/**
+ * Runs every minute by the rtc alarm.
+*/
+void rtcAlarmHandler() {
+    minuteFlag = true;
+}
+
+/**
+ * Initializes the RTC Timer and schedules the default events.
+ */
+void initRtcTimer() {
+    timer.setNowCallback(getNow); // set how to get the current time
+    timer.allowMultipleEvents();
+
+    resetRtcTimerEvents();
+}
+
+/**
+ * Clears the RTC Timer events and schedules the default events.
+ */
+void resetRtcTimerEvents() {
+    timer.clearAllEvents();
+
+    // Schedule the default fix event (if applicable)
+    // if (params.getDefaultFixInterval() > 0) {
+    //     timer.every(params.getDefaultFixInterval() * 60, runDefaultFixEvent);
+    // }
+
+    // check if the alternative fix event should be scheduled at all
+    // if (params.getAlternativeFixInterval() > 0) {
+    //     // Schedule the alternative fix event
+    //     timer.every(params.getAlternativeFixInterval() * 60, runAlternativeFixEvent);
+    // }
+
+    // if (isOnTheMoveInitialized) {
+    //     timer.every(params.getOnTheMoveFixInterval() * 60, runOnTheMoveFixEvent);
+    // }
+
+    // if lora is not enabled, schedule an event that takes care of extending the sleep time of the module
+    if (!LoRa.isInitialized()) {
+        timer.every(24 * 60 * 60, runLoraModuleSleepExtendEvent); // once a day
     }
-    SerialUSB.print(devAddr[i], HEX);
+}
+
+/**
+   Setup BOD33
+
+   Setup BOD the way we want it.
+    - BOD33USERLEVEL = 0x30 - shutdown at 3.07 Volt
+    - BOD33_EN = [X] //Enabled
+    - BOD33_ACTION = 0x01
+    - BOD33_HYST = [X] //Enabled
+*/
+void setupBOD33() {
+  SYSCTRL->BOD33.bit.LEVEL = 0x30;    // 3.07 Volt
+  SYSCTRL->BOD33.bit.ACTION = 1;      // Go to Reset
+  SYSCTRL->BOD33.bit.ENABLE = 1;      // Enabled
+  SYSCTRL->BOD33.bit.HYST = 1;        // Hysteresis on
+  while (!SYSCTRL->PCLKSR.bit.B33SRDY) {
+    /* Wait for synchronization */
   }
-  SerialUSB.println("");
-  SerialUSB.print("spreading factor: SF");
-  SerialUSB.println(spreadingFactor);
-  SerialUSB.println("");
 }
 
-void setupButton() {
-  pinMode(BUTTON, INPUT_PULLUP);
-  attachInterrupt(BUTTON, buttonHandler, FALLING);
+/**
+* Initializes the CPU sleep mode.
+*/
+void initSleep() {
+  // Set the sleep mode
+  SCB->SCR |= SCB_SCR_SLEEPDEEP_Msk;
 }
 
-bool setupGPS() {
-  bool result;
+/**
+ * Initializes the GPS and leaves it on if succesful.
+ * Returns true if successful.
+*/
+void initGps() {
   sodaq_gps.init(GPS_ENABLE);
 
-#ifdef DEBUGGPS
-  sodaq_gps.setDiag(SerialUSB);
-#endif
+  if (DEBUG_GPS) {
+    sodaq_gps.setDiag(DEBUG_STREAM);
+  }
 
-  //sodaq_gps.setMinNumSatellites(MINNUMSAT);
-  result = sodaq_gps.scan(!LOWPOWER, 900000L);
-
-  return result;
+  sodaq_gps.setMinNumSatellites(DEFAULT_MINIMUM_SATELLITES);
+  sodaq_gps.scan(true, 500);
 }
 
-bool setupLoRa() {
+/**
+* Initializes the accelerometer functionality (interrupt on acceleration).
+*/
+void initAccelerometer() {
+    pinMode(ACCEL_INT1, INPUT);
+    attachInterrupt(ACCEL_INT1, accelerometerInt1Handler, CHANGE);
+
+    // Configure EIC to use GCLK1 which uses XOSC32K, XOSC32K is already running in standby
+    // This has to be done after the first call to attachInterrupt()
+    GCLK->CLKCTRL.reg = GCLK_CLKCTRL_ID(GCM_EIC) |
+        GCLK_CLKCTRL_GEN_GCLK1 |
+        GCLK_CLKCTRL_CLKEN;
+
+    accelerometer.enable(true,
+        Sodaq_LIS3DE::NormalLowPower10Hz,
+        Sodaq_LIS3DE::XYZ,
+        Sodaq_LIS3DE::Scale8g,
+        true);
+    sodaq_wdt_safe_delay(100);
+
+    if (ACCELEROMETER_INTERRUPT) {
+      accelerometer.enableInterrupt1(
+        Sodaq_LIS3DE::XHigh | Sodaq_LIS3DE::XLow | Sodaq_LIS3DE::YHigh | Sodaq_LIS3DE::YLow | Sodaq_LIS3DE::ZHigh | Sodaq_LIS3DE::ZLow,
+        DEFAULT_MOVEMENT_PERCENTAGE * 8.0 / 100.0,
+        DEFAULT_MOVEMENT_DURATION,
+        Sodaq_LIS3DE::MovementRecognition);
+    }
+}
+
+/**
+ * Runs every time acceleration is over the limits
+ * set by the user (if enabled).
+*/
+void accelerometerInt1Handler() {
+    if (digitalRead(ACCEL_INT1)) {
+        if (ACCELEROMETER) {
+            setLedColor(YELLOW);
+        }
+
+        accelerationFlag = true;
+    }
+}
+
+/**
+    Initializes the lora module according to the given operation (join or skip).
+    Returns true if the operation was successful.
+*/
+bool initLora(LoraInitConsoleMessages messages, LoraInitJoin join) {
+  debugPrintln("Initializing LoRa...");
+
+  if (messages == LORA_INIT_SHOW_CONSOLE_MESSAGES) {
+    consolePrintln("Initializing LoRa...");
+  }
+
+  if (DEBUG) {
+    LoRaBee.setDiag(DEBUG_STREAM);
+    LoRa.setDiag(DEBUG_STREAM);
+  }
+
   bool result;
 
-#ifdef DEBUGLORA
-  LoRaBee.setDiag(SerialUSB);
-#endif
+  LORA_STREAM.begin(LoRaBee.getDefaultBaudRate());
+  result = LoRaBee.init(LORA_STREAM, LORA_RESET);
+  LoRa.init(LoRaBee, getNow);
 
-  result = LoRaBee.initABP(SerialLoRa, devAddr, appSKey, nwkSKey, isAdrOn);
+  // set keys and parameters
+  LoRa.setKeys(DEFAULT_DEVADDR_OR_DEVEUI, DEFAULT_APPSKEY_OR_APPEUI, DEFAULT_NWSKEY_OR_APPKEY);
+  LoRa.setOtaaOn(DEFAULT_IS_OTAA_ENABLED);
+  LoRa.setAdrOn(DEFAULT_ADR_ON);
+  LoRa.setAckOn(DEFAULT_ACK_ON);
+  LoRa.setReconnectOnTransmissionOn(DEFAULT_RECONNECT_ON_TRANSMISSION);
+  LoRa.setDefaultLoRaPort(DEFAULT_LORA_PORT);
+  LoRa.setRepeatTransmissionCount(DEFAULT_REPEAT_TRANSMISSION_COUNT);
+  LoRa.setSpreadingFactor(DEFAULT_SPREADING_FACTOR);
+  LoRa.setPowerIndex(DEFAULT_POWER);
 
-// disbable duty cycle limits
-#ifdef RESEARCH
-  LoRaBee.sendCommand("mac set ch dcycle 0 7");
-  LoRaBee.sendCommand("mac set ch dcycle 1 7");
-  LoRaBee.sendCommand("mac set ch dcycle 2 7");
-  LoRaBee.sendCommand("mac set ch dcycle 3 7");
-  LoRaBee.sendCommand("mac set ch dcycle 4 7");
-  LoRaBee.sendCommand("mac set ch dcycle 5 7");
-  LoRaBee.sendCommand("mac set ch dcycle 6 7");
-  LoRaBee.sendCommand("mac set ch dcycle 7 7");
-  LoRaBee.sendCommand("mac set ch dcycle 8 7");
-#endif
+  if (join == LORA_INIT_JOIN) {
+    result = LoRa.join();
 
-  if (result) {
-#ifdef DEBUG
-    SerialUSB.println("connection to the network was successful");
-#endif
-    LoRaBee.setSpreadingFactor(spreadingFactor);
-    LoRaBee.setPowerIndex(powerIndex);
-  } else {
-#ifdef DEBUG
-    SerialUSB.println("connection to the network failed");
-#endif
+    if (messages == LORA_INIT_SHOW_CONSOLE_MESSAGES) {
+      if (result) {
+        consolePrintln("LoRa initialized.");
+      }
+      else {
+        consolePrintln("LoRa initialization failed!");
+      }
+    }
   }
 
+  LoRa.setActive(false); // make sure it is off
   return result;
-}
-
-void setupMode() {
-  static unsigned long start;
-
-#ifdef DEBUG
-  SerialUSB.println("mode selection:");
-  SerialUSB.println("[press the button to switch between modes");
-  SerialUSB.println("wait 10 seconds to confirm the mode]");
-#endif
-  
-  while (!isModeInitialized) {
-    switch(modeState) {
-      case MODE_IDLE: {
-        modeState = MODE_IDLE_W;
-        break;
-      }
-      case MODE_IDLE_W: {
-        modeState = MODE_MANUAL;
-        break;
-      }
-      case MODE_MANUAL: {
-        mode = MANUAL;
-        setLedColor(WHITE);
-#ifdef DEBUG
-        SerialUSB.println("mode: manual..");
-#endif
-        modeState = MODE_MANUAL_W;
-        start = millis();
-        break;
-      }
-      case MODE_MANUAL_W: {
-        if (buttonFlag) {
-          modeState = MODE_WALKING;
-          buttonFlag = false;
-        } else if (millis() >= start + CONFIRMMODETIMEOUT) {
-          modeState = MODE_SET;
-        }
-        break;
-      }
-      case MODE_WALKING: {
-        mode = WALKING;
-        setLedColor(MAGENTA);
-        modeState = MODE_WALKING_W;
-        start = millis();
-#ifdef DEBUG
-        SerialUSB.println("mode: walking..");
-#endif
-        break;
-      }
-      case MODE_WALKING_W: {
-        if (buttonFlag) {
-          modeState = MODE_MANUAL;
-          buttonFlag = false;
-        } else if (millis() >= start + CONFIRMMODETIMEOUT) {
-          modeState = MODE_SET;
-        }
-        break;
-      }
-      case MODE_SET: {
-#ifdef DEBUG
-        SerialUSB.println("mode configured");
-#endif
-        isModeInitialized = true;
-        blinkLedColor(GREEN, 3);
-        modeState = MODE_SET_W;
-        break;
-      }
-      case MODE_SET_W: {
-        break;
-      }
-      default: {
-        setLedColor(NONE);
-      }
-    }
-  }  
-}
-
-void setupSF() {
-  static unsigned long start;
-  
-#ifdef DEBUG
-  SerialUSB.println("sf selection:");
-  SerialUSB.println("[press the button to switch between sf's");
-  SerialUSB.println("wait 10 seconds to confirm the sf]");
-#endif
-
-  while (!isSFInitialized) {
-    switch(sfState) {
-      case SF_IDLE: {
-        sfState = SF_IDLE_W;
-        break;
-      }
-      case SF_IDLE_W: {
-        sfState = SF_7;
-        break;
-      }
-      case SF_7: {
-        spreadingFactor = 7;
-#ifdef DEBUG
-        SerialUSB.print("sf: ");
-        SerialUSB.println(spreadingFactor);
-#endif
-        blinkLedColor(YELLOW, spreadingFactor - 6);
-        sfState = SF_7_W;
-        start = millis();
-        break;
-      }
-      case SF_7_W: {
-        if (buttonFlag) {
-          sfState = SF_8;
-          buttonFlag = false;
-        } else if (millis() >= start + CONFIRMSFTIMEOUT) {
-          sfState = SF_SET;
-        }
-        break;
-      }
-      case SF_8: {
-        spreadingFactor = 8;
-#ifdef DEBUG
-        SerialUSB.print("sf: ");
-        SerialUSB.println(spreadingFactor);
-#endif
-        blinkLedColor(YELLOW, spreadingFactor - 6);
-        sfState = SF_8_W;
-        start = millis();
-        break;
-      }
-      case SF_8_W: {
-        if (buttonFlag) {
-          sfState = SF_9;
-          buttonFlag = false;
-        } else if (millis() >= start + CONFIRMSFTIMEOUT) {
-          sfState = SF_SET;
-        }
-        break;
-      }
-      case SF_9: {
-        spreadingFactor = 9;
-#ifdef DEBUG
-        SerialUSB.print("sf: ");
-        SerialUSB.println(spreadingFactor);
-#endif
-        blinkLedColor(YELLOW, spreadingFactor - 6);
-        sfState = SF_9_W;
-        start = millis();
-        break;
-      }
-      case SF_9_W: {
-        if (buttonFlag) {
-          sfState = SF_10;
-          buttonFlag = false;
-        } else if (millis() >= start + CONFIRMSFTIMEOUT) {
-          sfState = SF_SET;
-        }
-        break;
-      }
-      case SF_10: {
-        spreadingFactor = 10;
-#ifdef DEBUG
-        SerialUSB.print("sf: ");
-        SerialUSB.println(spreadingFactor);
-#endif
-        blinkLedColor(YELLOW, spreadingFactor - 6);
-        sfState = SF_10_W;
-        start = millis();
-        break;
-      }
-      case SF_10_W: {
-        if (buttonFlag) {
-          sfState = SF_11;
-          buttonFlag = false;
-        } else if (millis() >= start + CONFIRMSFTIMEOUT) {
-          sfState = SF_SET;
-        }
-        break;
-      }
-      case SF_11: {
-        spreadingFactor = 11;
-#ifdef DEBUG
-        SerialUSB.print("sf: ");
-        SerialUSB.println(spreadingFactor);
-#endif
-        blinkLedColor(YELLOW, spreadingFactor - 6);
-        sfState = SF_11_W;
-        start = millis();
-        break;
-      }
-      case SF_11_W: {
-        if (buttonFlag) {
-          sfState = SF_12;
-          buttonFlag = false;
-        } else if (millis() >= start + CONFIRMSFTIMEOUT) {
-          sfState = SF_SET;
-        }
-        break;
-      }
-      case SF_12: {
-        spreadingFactor = 12;
-#ifdef DEBUG
-        SerialUSB.print("sf: ");
-        SerialUSB.println(spreadingFactor);
-#endif
-        blinkLedColor(YELLOW, spreadingFactor - 6);
-        sfState = SF_12_W;
-        start = millis();
-        break;
-      }
-      case SF_12_W: {
-        if (buttonFlag) {
-          sfState = SF_7;
-          buttonFlag = false;
-        } else if (millis() >= start + CONFIRMSFTIMEOUT) {
-          sfState = SF_SET;
-        }
-        break;
-      }
-      case SF_SET: {
-#ifdef DEBUG
-        SerialUSB.println("sf configured");
-#endif
-        isSFInitialized = true;
-        blinkLedColor(GREEN, 3);
-        sfState = SF_SET_W;
-        break;
-      }
-      case SF_SET_W: {
-        break;
-      }
-      default: {
-        setLedColor(RED);
-      }
-    }
-  }
 }
 
 void loop() {
-  static uint8_t data[SIZE];
-  static unsigned long start;
 
-  if (!isModeInitialized || !isLoRaInitialized || !isGPSInitialized) {
-    mState = ERROR;
-  }
-
-  switch(mState) {
-    case IDLE: {
-      memcpy(data, 0, sizeof(data));
-      setLedColor(GREEN);
-      mState = IDLE_W;
-      start = millis();
-      break;
-    }
-    case IDLE_W: {
-      switch(mode) {
-        case MANUAL: {
-          if (buttonFlag) {
-            mState = GPS_SCAN;
-            buttonFlag = false;
-          }
-          break;
-        }
-        case WALKING: {
-          if (millis() >= start + WALKINGTIMEOUT) {
-            mState = GPS_SCAN;
-          }
-          break;
-        }
-        default: {
-          mState = ERROR;
-        }
-      }
-      break;
-    }
-    case GPS_SCAN: {
-      setLedColor(CYAN);
-      if (sodaq_gps.scan(!LOWPOWER, GPSTIMEOUT)) {
-        int32_t lat = sodaq_gps.getLat() * 10000;
-        int32_t lon = sodaq_gps.getLon() * 10000;
-        data[0] = lat >> 16;
-        data[1] = lat >> 8;
-        data[2] = lat;
-        data[3] = lon >> 16;
-        data[4] = lon >> 8;
-        data[5] = lon;
-        data[6] = powerIndex;
-        for (uint8_t i = 0; i < sizeof(data); i++) {
-          if (data[i] < 0x10) {
-            SerialUSB.print("0");
-          }
-          SerialUSB.print(data[i], HEX);
-        }
-        SerialUSB.println("");
-        mState = GPS_SCAN_W;
-      } else {
-        mState = ERROR;
-      }
-      break;
-    }
-    case GPS_SCAN_W: {
-      mState = LORA_TX;
-      break;
-    }
-    case LORA_TX: {
-      setLedColor(BLUE);
-      if (transmit(data, sizeof(data), 1)) {
-        mState = LORA_TX_W;
-      } else {
-        mState = ERROR;
-      }
-      break;
-    }
-    case LORA_TX_W: {
-      mState = IDLE;
-      break;
-    }
-    case ERROR: {
-      blinkLedColor(RED, 10);
-      mState = ERROR_W;
-      break;
-    }
-    case ERROR_W: {
-      mState = IDLE;
-      break;
-    }
-    default: {
-      setLedColor(WHITE);
-    }
-  }
 }
 
-void buttonHandler() {
-  buttonFlag = true;
-}
+/**
+ * Powers down all devices and puts the system to deep sleep.
+ */
+void systemSleep() {
+    LORA_STREAM.flush();
 
-bool transmit(uint8_t* buffer, uint8_t size, int16_t overrideLoRaPort) {
-  bool result = false;
-  
-  if (!isLoRaInitialized) {
-    SerialUSB.println("transmitting LoRa message without initialization..");
-    return false;
-  }
-
-  setLoRaActive(true);
-
-  uint16_t port = overrideLoRaPort > -1 ? overrideLoRaPort : defaultLoRaPort;
-
-  result = LoRaBee.send(port, buffer, size);
-#ifdef DEBUG
-  switch (result) {
-    case NoError: {
-      SerialUSB.println("successful transmission");
-      break;
-    }
-    case NoResponse: {
-      SerialUSB.println("error while transmitting: no response");
-      break;
-    }
-    case Timeout: {
-      SerialUSB.println("error while transmitting: internal error");
-      break;
-    }
-    case InternalError: {
-      SerialUSB.println("error while transmitting: no acknowledgment");
-      break;
-    }
-    case NetworkFatalError: {
-      SerialUSB.println("error while transmitting: network fatal error");
-      break;
-    }
-    case Busy: {
-      SerialUSB.println("error while transmitting: busy");
-      break;
-    }
-    case NotConnected: {
-      SerialUSB.println("error while transmitting: not connected");
-      break;
-    }
-    case NoAcknowledgment: {
-      SerialUSB.println("error while transmitting: no acknowledgment");
-      break;
-    }
-    case PayloadSizeError: {
-      SerialUSB.println("error while transmitting: payload size error");
-      break;
-    }
-    default: {
-      SerialUSB.print("unexpected error occured: ");
-      SerialUSB.println(result);
-      break;
-    }
-  }
-#endif
-
-  if (LOWPOWER) {
-    setLoRaActive(false);
-  }
-
-  if (result == 0) {
-    return true;
-  } else {
-    return false;
-  }
-}
-
-void setLoRaActive(bool on) {
-  if (on) {
-    LoRaBee.wakeUp();
-  } else {
-    LoRaBee.sleep();
-  }
-}
-
-void setLedColor(LedColor color) {
-    pinMode(LED_RED, OUTPUT);
-    pinMode(LED_GREEN, OUTPUT);
-    pinMode(LED_BLUE, OUTPUT);
-
-    digitalWrite(LED_RED, HIGH);
-    digitalWrite(LED_GREEN, HIGH);
-    digitalWrite(LED_BLUE, HIGH);
-
-    switch (color) {
-    case NONE:
-        break;
-    case RED:
-        digitalWrite(LED_RED, LOW);
-        break;
-    case GREEN:
-        digitalWrite(LED_GREEN, LOW);
-        break;
-    case BLUE:
-        digitalWrite(LED_BLUE, LOW);
-        break;
-    case YELLOW:
-        digitalWrite(LED_GREEN, LOW);
-        digitalWrite(LED_RED, LOW);
-        break;
-    case MAGENTA:
-        digitalWrite(LED_BLUE, LOW);
-        digitalWrite(LED_RED, LOW);
-        break;
-    case CYAN:
-        digitalWrite(LED_GREEN, LOW);
-        digitalWrite(LED_BLUE, LOW);
-        break;
-    case WHITE:
-        digitalWrite(LED_GREEN, LOW);
-        digitalWrite(LED_RED, LOW);
-        digitalWrite(LED_BLUE, LOW);
-        break;
-    default:
-        break;
-    }
-}
-
-void blinkLedColor(LedColor color, uint8_t times) {
-  while (times-- > 0) {
     setLedColor(NONE);
-    delay(500);
-    setLedColor(color);
-    delay(500);
-  }
-  setLedColor(NONE);
+    // setGpsActive(false); // explicitly disable after resetting the pins
+
+    // go to sleep, unless USB is used for debugging
+    if (!DEBUG || ((long)&DEBUG_STREAM != (long)&SerialUSB)) {
+        noInterrupts();
+        if (!(sodaq_wdt_flag || minuteFlag)) {
+            interrupts();
+
+            __WFI(); // SAMD sleep
+        }
+        interrupts();
+    }
 }
 
+/**
+ * Wakes up the lora module to put it back to sleep, i.e. extends the sleep period
+*/
+void runLoraModuleSleepExtendEvent(uint32_t now) {
+    debugPrintln("Extending LoRa module sleep period.");
+
+    LoRa.extendSleep();
+}
+
+bool getGpsFix() {
+  // scan for 5 minutes before giving up..
+  if (sodaq_gps.scan(false, 300000)) {
+    uint32_t epoch = time.mktime(sodaq_gps.getYear(), sodaq_gps.getMonth(), sodaq_gps.getDay(), sodaq_gps.getHour(), sodaq_gps.getMinute(), sodaq_gps.getSecond());
+
+    // check if there is an actual offset before setting the RTC
+    if (abs((int64_t)getNow() - (int64_t)epoch) > MAX_RTC_EPOCH_OFFSET) {
+      setNow(epoch);
+    }
+
+    return true;
+  }
+  return false;
+}
+
+/**
+   Prints a boot-up message that includes project name, version,
+   and Cpu reset cause.
+*/
+static void printBootUpMessage(Stream& stream) {
+  stream.println("** " PROJECT_NAME " - " VERSION " **");
+
+  getHWEUI();
+  stream.print("LoRa HWEUI: ");
+  for (uint8_t i = 0; i < sizeof(loraHWEui); i++) {
+    stream.print((char)NIBBLE_TO_HEX_CHAR(HIGH_NIBBLE(loraHWEui[i])));
+    stream.print((char)NIBBLE_TO_HEX_CHAR(LOW_NIBBLE(loraHWEui[i])));
+  }
+  stream.println();
+
+  stream.print(" -> ");
+  printCpuResetCause(stream);
+
+  stream.println();
+}
+
+/**
+   Prints the cause of the last reset to the given stream.
+
+   It uses the PM->RCAUSE register to detect the cause of the last reset.
+*/
+static void printCpuResetCause(Stream& stream) {
+  stream.print("CPU reset by");
+
+  if (PM->RCAUSE.bit.SYST) {
+    stream.print(" Software");
+  }
+
+  // Syntax error due to #define WDT in CMSIS/4.0.0-atmel/Device/ATMEL/samd21/include/samd21j18a.h
+  // if (PM->RCAUSE.bit.WDT) {
+  if ((PM->RCAUSE.reg & PM_RCAUSE_WDT) != 0) {
+    stream.print(" Watchdog");
+  }
+
+  if (PM->RCAUSE.bit.EXT) {
+    stream.print(" External");
+  }
+
+  if (PM->RCAUSE.bit.BOD33) {
+    stream.print(" BOD33");
+  }
+
+  if (PM->RCAUSE.bit.BOD12) {
+    stream.print(" BOD12");
+  }
+
+  if (PM->RCAUSE.bit.POR) {
+    stream.print(" Power On Reset");
+  }
+
+  stream.print(" [");
+  stream.print(PM->RCAUSE.reg);
+  stream.println("]");
+}
+
+void getHWEUI() {
+  // only read the HWEUI once
+  if (!isLoraHWEuiInitialized) {
+    if (initLora(LORA_INIT_SKIP_CONSOLE_MESSAGES, LORA_INIT_SKIP_JOIN)) {
+      sodaq_wdt_safe_delay(10);
+      uint8_t len = LoRa.getHWEUI(loraHWEui, sizeof(loraHWEui));
+
+      if (len == sizeof(loraHWEui)) {
+        isLoraHWEuiInitialized = true;
+      }
+    }
+  }
+}
