@@ -1,20 +1,20 @@
 /*
-* Copyright (c) 2016 SODAQ. All rights reserved.
-*
-* This file is part of Sodaq_UBlox_GPS.
-*
-* Sodaq_UBlox_GPS is free software: you can redistribute it and/or modify
-* it under the terms of the GNU Lesser General Public License as published
-* by the Free Software Foundation, either version 3 of the License, or (at
-* your option) any later version.
-*
-* Sodaq_UBlox_GPS is distributed in the hope that it will be useful, but
-* WITHOUT ANY WARRANTY; without even the implied warranty of MERCHANTABILITY
-* or FITNESS FOR A PARTICULAR PURPOSE. See the GNU Lesser General Public
-* License for more details.
-*
-* You should have received a copy of the GNU Lesser General Public License
-* along with Sodaq_UBlox_GPS.  If not, see <http://www.gnu.org/licenses/>.
+  Copyright (c) 2016 SODAQ. All rights reserved.
+
+  This file is part of Sodaq_UBlox_GPS.
+
+  Sodaq_UBlox_GPS is free software: you can redistribute it and/or modify
+  it under the terms of the GNU Lesser General Public License as published
+  by the Free Software Foundation, either version 3 of the License, or (at
+  your option) any later version.
+
+  Sodaq_UBlox_GPS is distributed in the hope that it will be useful, but
+  WITHOUT ANY WARRANTY; without even the implied warranty of MERCHANTABILITY
+  or FITNESS FOR A PARTICULAR PURPOSE. See the GNU Lesser General Public
+  License for more details.
+
+  You should have received a copy of the GNU Lesser General Public License
+  along with Sodaq_UBlox_GPS.  If not, see <http://www.gnu.org/licenses/>.
 */
 
 #ifndef _SODAQ_UBLOX_GPS_H
@@ -25,36 +25,68 @@
 
 class Sodaq_UBlox_GPS
 {
-public:
+  public:
     Sodaq_UBlox_GPS();
 
     void init(int8_t enable_pin);
     bool scan(bool leave_on = false, uint32_t timeout = 20000);
     String getDateTimeString();
-    double getLat() { return _lat; }
-    double getLon() { return _lon; }
-    double getAlt() { return _alt; }
-    double getSpeed() { return _speed; }
-    double getHDOP() { return _hdop; }
-    uint8_t getNumberOfSatellites() { return _numSatellites; }
-    uint16_t getYear() { return (uint16_t)_yy + 2000; }         // 2016..
-    uint8_t getMonth() { return _MM; }         // 1..
-    uint8_t getDay() { return _dd; }           // 1..
-    uint8_t getHour() { return _hh; }          // 0..
-    uint8_t getMinute() { return _mm; }        // 0..
-    uint8_t getSecond() { return _ss; }        // 0..
+    double getLat() {
+      return _lat;
+    }
+    double getLon() {
+      return _lon;
+    }
+    double getAlt() {
+      return _alt;
+    }
+    double getSpeed() {
+      return _speed;
+    }
+    double getHDOP() {
+      return _hdop;
+    }
+    uint8_t getNumberOfSatellites() {
+      return _numSatellites;
+    }
+    uint16_t getYear() {
+      return (uint16_t)_yy + 2000;  // 2016..
+    }
+    uint8_t getMonth() {
+      return _MM;  // 1..
+    }
+    uint8_t getDay() {
+      return _dd;  // 1..
+    }
+    uint8_t getHour() {
+      return _hh;  // 0..
+    }
+    uint8_t getMinute() {
+      return _mm;  // 0..
+    }
+    uint8_t getSecond() {
+      return _ss;  // 0..
+    }
 
     // How many extra lines must scan see before it stops? This is merely for debugging
-    void setMinNumOfLines(size_t num) { _minNumOfLines = num; }
+    void setMinNumOfLines(size_t num) {
+      _minNumOfLines = num;
+    }
 
     // The minimum number of satellites to satisfy scan
-    void setMinNumSatellites(size_t num) { _minNumSatellites = num; }
+    void setMinNumSatellites(size_t num) {
+      _minNumSatellites = num;
+    }
 
     // Sets the optional "Diagnostics and Debug" stream.
-    void setDiag(Stream &stream) { _diagStream = &stream; }
-    void setDiag(Stream *stream) { _diagStream = stream; }
+    void setDiag(Stream &stream) {
+      _diagStream = &stream;
+    }
+    void setDiag(Stream *stream) {
+      _diagStream = stream;
+    }
 
-private:
+  private:
     void on();
     void off();
 

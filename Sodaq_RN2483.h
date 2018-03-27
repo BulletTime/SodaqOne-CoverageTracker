@@ -69,15 +69,15 @@ typedef Stream SerialType;
 
 // Available error codes.
 enum MacTransmitErrorCodes {
-    NoError = 0,
-    NoResponse = 1,
-    Timeout = 2,
-    PayloadSizeError = 3,
-    InternalError = 4,
-    Busy = 5,
-    NetworkFatalError = 6,
-    NotConnected = 7,
-    NoAcknowledgment = 8,
+  NoError = 0,
+  NoResponse = 1,
+  Timeout = 2,
+  PayloadSizeError = 3,
+  InternalError = 4,
+  Busy = 5,
+  NetworkFatalError = 6,
+  NotConnected = 7,
+  NoAcknowledgment = 8,
 };
 
 // Provides a simple, abstracted interface to Microchip's RN2483 LoRaWAN module.
@@ -93,7 +93,9 @@ class Sodaq_RN2483
     Sodaq_RN2483();
 
     // Returns the correct baudrate for the serial port that connects to the device.
-    uint32_t getDefaultBaudRate() { return 57600; };
+    uint32_t getDefaultBaudRate() {
+      return 57600;
+    };
 
     uint8_t getVersion(char* version, uint8_t size);
 
@@ -113,7 +115,9 @@ class Sodaq_RN2483
     bool initABP(const uint8_t devAddr[4], const uint8_t appSKey[16], const uint8_t nwkSKey[16], bool adr = true);
 
     // Sets the optional "Diagnostics and Debug" stream.
-    void setDiag(Stream& stream) { _diagStream = &stream; };
+    void setDiag(Stream& stream) {
+      _diagStream = &stream;
+    };
 
     // Performs a hardware reset (using the reset pin -if available).
     void hardwareReset();
@@ -168,7 +172,9 @@ class Sodaq_RN2483
     bool setMacParam(const char* paramName, const char* paramValue);
 
     // Sets the (optional) callback to call when a reply is received
-    void setReceiveCallback(ReceiveCallback callback) { _receiveCallback = callback; };
+    void setReceiveCallback(ReceiveCallback callback) {
+      _receiveCallback = callback;
+    };
 
 #ifdef ENABLE_SLEEP
     // Wakes up the module from sleep (if supported).
@@ -181,11 +187,15 @@ class Sodaq_RN2483
 #ifdef USE_DYNAMIC_BUFFER
     // Sets the size of the input buffer.
     // Needs to be called before initOTA()/initABP().
-    void setInputBufferSize(uint16_t value) { this->_inputBufferSize = value; };
+    void setInputBufferSize(uint16_t value) {
+      this->_inputBufferSize = value;
+    };
 
     // Sets the size of the "Received Payload" buffer.
     // Needs to be called before initOTA()/initABP().
-    void setReceivedPayloadBufferSize(uint16_t value) { this->_receivedPayloadBufferSize = value; };
+    void setReceivedPayloadBufferSize(uint16_t value) {
+      this->_receivedPayloadBufferSize = value;
+    };
 #endif
 
     // Provides a quick test of several methods as a pseudo-unit test.
@@ -242,10 +252,14 @@ class Sodaq_RN2483
     ReceiveCallback _receiveCallback;
 
     // Enables hardware-resetting the module.
-    void enableHardwareReset(uint8_t resetPin) { this->_resetPin = resetPin; };
+    void enableHardwareReset(uint8_t resetPin) {
+      this->_resetPin = resetPin;
+    };
 
     // Returns true if the hardware reset pin is set.
-    bool isHardwareResetEnabled() { return _resetPin >= 0; };
+    bool isHardwareResetEnabled() {
+      return _resetPin >= 0;
+    };
 
     // Reads a line from the device stream into the "buffer" starting at the "start" position of the buffer.
     // Returns the number of bytes read.
@@ -253,7 +267,9 @@ class Sodaq_RN2483
 
     // Reads a line from the device stream into the input buffer.
     // Returns the number of bytes read.
-    uint16_t readLn() { return readLn(this->_inputBuffer, this->_inputBufferSize); };
+    uint16_t readLn() {
+      return readLn(this->_inputBuffer, this->_inputBufferSize);
+    };
 
     // Write a byte
     size_t writeByte(uint8_t value);

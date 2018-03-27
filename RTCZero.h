@@ -1,20 +1,20 @@
 /*
-RTC library for Arduino Zero.
-Copyright (c) 2015 Arduino LLC. All right reserved.
+  RTC library for Arduino Zero.
+  Copyright (c) 2015 Arduino LLC. All right reserved.
 
-This library is free software; you can redistribute it and/or
-modify it under the terms of the GNU Lesser General Public
-License as published by the Free Software Foundation; either
-version 2.1 of the License, or (at your option) any later version.
+  This library is free software; you can redistribute it and/or
+  modify it under the terms of the GNU Lesser General Public
+  License as published by the Free Software Foundation; either
+  version 2.1 of the License, or (at your option) any later version.
 
-This library is distributed in the hope that it will be useful,
-but WITHOUT ANY WARRANTY; without even the implied warranty of
-MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the GNU
-Lesser General Public License for more details.
+  This library is distributed in the hope that it will be useful,
+  but WITHOUT ANY WARRANTY; without even the implied warranty of
+  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the GNU
+  Lesser General Public License for more details.
 
-You should have received a copy of the GNU Lesser General Public
-License along with this library; if not, write to the Free Software
-Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA 02110-1301 USA
+  You should have received a copy of the GNU Lesser General Public
+  License along with this library; if not, write to the Free Software
+  Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA 02110-1301 USA
 */
 
 #ifndef RTC_ZERO_H
@@ -25,17 +25,17 @@ Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA 02110-1301 USA
 typedef void(*voidFuncPtr)(void);
 
 class RTCZero {
-public:
+  public:
 
     enum Alarm_Match : uint8_t // Should we have this enum or just use the identifiers from /component/rtc.h ?
     {
-        MATCH_OFF = RTC_MODE2_MASK_SEL_OFF_Val,          // Never
-        MATCH_SS = RTC_MODE2_MASK_SEL_SS_Val,           // Every Minute
-        MATCH_MMSS = RTC_MODE2_MASK_SEL_MMSS_Val,         // Every Hour
-        MATCH_HHMMSS = RTC_MODE2_MASK_SEL_HHMMSS_Val,       // Every Day
-        MATCH_DHHMMSS = RTC_MODE2_MASK_SEL_DDHHMMSS_Val,     // Every Month
-        MATCH_MMDDHHMMSS = RTC_MODE2_MASK_SEL_MMDDHHMMSS_Val,   // Every Year
-        MATCH_YYMMDDHHMMSS = RTC_MODE2_MASK_SEL_YYMMDDHHMMSS_Val  // Once, on a specific date and a specific time
+      MATCH_OFF = RTC_MODE2_MASK_SEL_OFF_Val,          // Never
+      MATCH_SS = RTC_MODE2_MASK_SEL_SS_Val,           // Every Minute
+      MATCH_MMSS = RTC_MODE2_MASK_SEL_MMSS_Val,         // Every Hour
+      MATCH_HHMMSS = RTC_MODE2_MASK_SEL_HHMMSS_Val,       // Every Day
+      MATCH_DHHMMSS = RTC_MODE2_MASK_SEL_DDHHMMSS_Val,     // Every Month
+      MATCH_MMDDHHMMSS = RTC_MODE2_MASK_SEL_MMDDHHMMSS_Val,   // Every Year
+      MATCH_YYMMDDHHMMSS = RTC_MODE2_MASK_SEL_YYMMDDHHMMSS_Val  // Once, on a specific date and a specific time
     };
 
     RTCZero();
@@ -96,7 +96,7 @@ public:
     void setEpoch(uint32_t ts);
     void setY2kEpoch(uint32_t ts);
 
-private:
+  private:
     bool _configured;
 
     void config32kOSC(void);

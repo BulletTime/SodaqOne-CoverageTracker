@@ -1,27 +1,27 @@
 /*
- * Copyright (c) 2014 Kees Bakker.  All rights reserved.
- *
- * This file is part of RTCTimer.
- *
- * RTCTimer is free software: you can redistribute it and/or
- * modify it under the terms of the GNU Lesser General Public License
- * as published by the Free Software Foundation, either version 3 of
- * the License, or(at your option) any later version.
- *
- * RTCTimer is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
- * GNU Lesser General Public License for more details.
- *
- * You should have received a copy of the GNU Lesser General Public
- * License along with RTCTimer.  If not, see
- * <http://www.gnu.org/licenses/>.
- */
+   Copyright (c) 2014 Kees Bakker.  All rights reserved.
+
+   This file is part of RTCTimer.
+
+   RTCTimer is free software: you can redistribute it and/or
+   modify it under the terms of the GNU Lesser General Public License
+   as published by the Free Software Foundation, either version 3 of
+   the License, or(at your option) any later version.
+
+   RTCTimer is distributed in the hope that it will be useful,
+   but WITHOUT ANY WARRANTY; without even the implied warranty of
+   MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+   GNU Lesser General Public License for more details.
+
+   You should have received a copy of the GNU Lesser General Public
+   License along with RTCTimer.  If not, see
+   <http://www.gnu.org/licenses/>.
+*/
 
 /*
- * The RTCTimer can be used to implement a simple scheduler.
- * It was inspired by the Arduino Timer library by Simon Monk.
- */
+   The RTCTimer can be used to implement a simple scheduler.
+   It was inspired by the Arduino Timer library by Simon Monk.
+*/
 
 #include "RTCTimer.h"
 //#include "Diag.h"
@@ -57,11 +57,11 @@ bool RTCEvent::update(uint32_t now)
       }
     }
     switch (_eventType) {
-    case RTCEvent_Every:
-      (*_callback)(now);
-      break;
-    default:
-      break;
+      case RTCEvent_Every:
+        (*_callback)(now);
+        break;
+      default:
+        break;
     }
     if (_repeatCount > 0 && ++_count >= _repeatCount) {
       // Done. Free the event.
@@ -73,7 +73,7 @@ bool RTCEvent::update(uint32_t now)
 }
 
 int8_t RTCTimer::every(uint32_t period, void (*callback)(uint32_t now),
-    int repeatCount)
+                       int repeatCount)
 {
   int8_t i = findFreeEventIndex();
   if (i == -1)
@@ -90,11 +90,11 @@ int8_t RTCTimer::every(uint32_t period, void (*callback)(uint32_t now),
 }
 
 /*
- * Reset the "last event" time of all events to the new value.
- *
- * This function should be called once (e.g. in setup() after creating
- * all the ...
- */
+   Reset the "last event" time of all events to the new value.
+
+   This function should be called once (e.g. in setup() after creating
+   all the ...
+*/
 void RTCTimer::resetAll(uint32_t now)
 {
   for (uint8_t i = 0; i < sizeof(_events) / sizeof(_events[0]); ++i) {

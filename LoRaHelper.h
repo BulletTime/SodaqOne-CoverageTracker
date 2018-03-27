@@ -11,44 +11,76 @@
 
 class LoRaHelper
 {
-public:
+  public:
     LoRaHelper();
 
-    void setDiag(Stream& stream) { _diagStream = &stream; };
+    void setDiag(Stream& stream) {
+      _diagStream = &stream;
+    };
     void init(Sodaq_RN2483& rn2483, uint32_t(*getNow)());
     void setKeys(const char* devAddrOrEUI, const char* appSKeyOrEUI, const char* nwSKeyOrAppKey) {
-        _devAddrOrEUI = devAddrOrEUI;
-        _appSKeyOrEUI = appSKeyOrEUI;
-        _nwSKeyOrAppKey = nwSKeyOrAppKey;
+      _devAddrOrEUI = devAddrOrEUI;
+      _appSKeyOrEUI = appSKeyOrEUI;
+      _nwSKeyOrAppKey = nwSKeyOrAppKey;
     };
-    void setOtaaOn(bool on) { _isOtaaOn = on; };
-    bool isOtaaOn() { return _isOtaaOn; };
+    void setOtaaOn(bool on) {
+      _isOtaaOn = on;
+    };
+    bool isOtaaOn() {
+      return _isOtaaOn;
+    };
 
-    void setAdrOn(bool on) { _isAdrOn = on; };
-    bool isAdrOn() { return _isAdrOn; };
+    void setAdrOn(bool on) {
+      _isAdrOn = on;
+    };
+    bool isAdrOn() {
+      return _isAdrOn;
+    };
 
-    void setAckOn(bool on) { _isAckOn = on; };
-    bool isAckOn() { return _isAckOn; };
+    void setAckOn(bool on) {
+      _isAckOn = on;
+    };
+    bool isAckOn() {
+      return _isAckOn;
+    };
 
-    void setReconnectOnTransmissionOn(bool on) { _isReconnectOnTransmissionOn = on; };
-    bool isReconnectOnTransmissionOn() { return _isReconnectOnTransmissionOn; };
+    void setReconnectOnTransmissionOn(bool on) {
+      _isReconnectOnTransmissionOn = on;
+    };
+    bool isReconnectOnTransmissionOn() {
+      return _isReconnectOnTransmissionOn;
+    };
 
-    void setDefaultLoRaPort(uint8_t port) { _defaultLoRaPort = port; };
-    uint8_t getDefaultLoRaPort() { return _defaultLoRaPort; }
+    void setDefaultLoRaPort(uint8_t port) {
+      _defaultLoRaPort = port;
+    };
+    uint8_t getDefaultLoRaPort() {
+      return _defaultLoRaPort;
+    }
 
-    void setRepeatTransmissionCount(uint8_t count) { _repeatTransmissionCount = count; };
-    uint8_t getRepeatTransmissionCount() { return _repeatTransmissionCount; };
+    void setRepeatTransmissionCount(uint8_t count) {
+      _repeatTransmissionCount = count;
+    };
+    uint8_t getRepeatTransmissionCount() {
+      return _repeatTransmissionCount;
+    };
 
-    void setSpreadingFactor(uint8_t spreadingFactor) { _spreadingFactor = spreadingFactor; };
-    void setPowerIndex(uint8_t powerIndex) { _powerIndex = powerIndex; };
+    void setSpreadingFactor(uint8_t spreadingFactor) {
+      _spreadingFactor = spreadingFactor;
+    };
+    void setPowerIndex(uint8_t powerIndex) {
+      _powerIndex = powerIndex;
+    };
     void setActive(bool on);
-    bool isInitialized() { return _isInitialized; };
+    bool isInitialized() {
+      return _isInitialized;
+    };
     uint8_t getHWEUI(uint8_t* hweui, uint8_t size);
     bool join();
     uint8_t transmit(uint8_t* buffer, uint8_t size, int16_t overrideLoRaPort = -1);
     void extendSleep();
     void loopHandler();
-private:
+  private:
     Stream* _diagStream;
     Sodaq_RN2483* _rn2483;
     const char* _devAddrOrEUI;

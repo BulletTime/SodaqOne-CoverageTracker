@@ -27,8 +27,11 @@
 #include "Enums.h"
 #include "LedColor.h"
 #include "LoRaHelper.h"
+#include "MyTime.h"
 #include "RTCTimer.h"
 #include "RTCZero.h"
+#include "Sodaq_LIS3DE.h"
+#include "Sodaq_Ublox_GPS.h"
 #include "Sodaq_wdt.h"
 #include "Utils.h"
 
@@ -81,6 +84,8 @@
 
 RTCZero rtc;
 RTCTimer timer;
+Time time;
+Sodaq_LIS3DE accelerometer;
 
 volatile bool minuteFlag;
 volatile bool accelerationFlag;
@@ -179,7 +184,7 @@ void setup() {
   }
 
   // disable the debug stream if it is not disabled by the above
-  if (!params.getIsDebugOn() && ((long)&DEBUG_STREAM != (long)&SerialUSB)) {
+  if (!DEBUG && ((long)&DEBUG_STREAM != (long)&SerialUSB)) {
     DEBUG_STREAM.flush();
     DEBUG_STREAM.end();
   }
@@ -197,90 +202,90 @@ void setup() {
 }
 
 /**
- * Returns the current datetime (seconds since unix epoch).
- */
+   Returns the current datetime (seconds since unix epoch).
+*/
 uint32_t getNow() {
-    return rtc.getEpoch();
+  return rtc.getEpoch();
 }
 
 /**
- * Sets the RTC epoch and "rtcEpochDelta".
- */
+   Sets the RTC epoch and "rtcEpochDelta".
+*/
 void setNow(uint32_t newEpoch) {
-    uint32_t currentEpoch = getNow();
+  uint32_t currentEpoch = getNow();
 
-    debugPrint("Setting RTC from ");
-    debugPrint(currentEpoch);
-    debugPrint(" to ");
-    debugPrintln(newEpoch);
+  debugPrint("Setting RTC from ");
+  debugPrint(currentEpoch);
+  debugPrint(" to ");
+  debugPrintln(newEpoch);
 
-    rtc.setEpoch(newEpoch);
+  rtc.setEpoch(newEpoch);
 
-    timer.adjust(currentEpoch, newEpoch);
+  timer.adjust(currentEpoch, newEpoch);
 
-    isRtcInitialized = true;
+  isRtcInitialized = true;
 }
 
 /**
- * Initializes the RTC.
- */
+   Initializes the RTC.
+*/
 void initRtc() {
-    rtc.begin();
+  rtc.begin();
 
-    // Schedule the wakeup interrupt for every minute
-    // Alarm is triggered 1 cycle after match
-    rtc.setAlarmSeconds(59);
-    rtc.enableAlarm(RTCZero::MATCH_SS); // alarm every minute
+  // Schedule the wakeup interrupt for every minute
+  // Alarm is triggered 1 cycle after match
+  rtc.setAlarmSeconds(59);
+  rtc.enableAlarm(RTCZero::MATCH_SS); // alarm every minute
 
-    // Attach handler
-    rtc.attachInterrupt(rtcAlarmHandler);
+  // Attach handler
+  rtc.attachInterrupt(rtcAlarmHandler);
 
-    // This sets it to 2000-01-01
-    rtc.setEpoch(0);
+  // This sets it to 2000-01-01
+  rtc.setEpoch(0);
 }
 
 /**
- * Runs every minute by the rtc alarm.
+   Runs every minute by the rtc alarm.
 */
 void rtcAlarmHandler() {
-    minuteFlag = true;
+  minuteFlag = true;
 }
 
 /**
- * Initializes the RTC Timer and schedules the default events.
- */
+   Initializes the RTC Timer and schedules the default events.
+*/
 void initRtcTimer() {
-    timer.setNowCallback(getNow); // set how to get the current time
-    timer.allowMultipleEvents();
+  timer.setNowCallback(getNow); // set how to get the current time
+  timer.allowMultipleEvents();
 
-    resetRtcTimerEvents();
+  resetRtcTimerEvents();
 }
 
 /**
- * Clears the RTC Timer events and schedules the default events.
- */
+   Clears the RTC Timer events and schedules the default events.
+*/
 void resetRtcTimerEvents() {
-    timer.clearAllEvents();
+  timer.clearAllEvents();
 
-    // Schedule the default fix event (if applicable)
-    // if (params.getDefaultFixInterval() > 0) {
-    //     timer.every(params.getDefaultFixInterval() * 60, runDefaultFixEvent);
-    // }
+  // Schedule the default fix event (if applicable)
+  // if (params.getDefaultFixInterval() > 0) {
+  //     timer.every(params.getDefaultFixInterval() * 60, runDefaultFixEvent);
+  // }
 
-    // check if the alternative fix event should be scheduled at all
-    // if (params.getAlternativeFixInterval() > 0) {
-    //     // Schedule the alternative fix event
-    //     timer.every(params.getAlternativeFixInterval() * 60, runAlternativeFixEvent);
-    // }
+  // check if the alternative fix event should be scheduled at all
+  // if (params.getAlternativeFixInterval() > 0) {
+  //     // Schedule the alternative fix event
+  //     timer.every(params.getAlternativeFixInterval() * 60, runAlternativeFixEvent);
+  // }
 
-    // if (isOnTheMoveInitialized) {
-    //     timer.every(params.getOnTheMoveFixInterval() * 60, runOnTheMoveFixEvent);
-    // }
+  // if (isOnTheMoveInitialized) {
+  //     timer.every(params.getOnTheMoveFixInterval() * 60, runOnTheMoveFixEvent);
+  // }
 
-    // if lora is not enabled, schedule an event that takes care of extending the sleep time of the module
-    if (!LoRa.isInitialized()) {
-        timer.every(24 * 60 * 60, runLoraModuleSleepExtendEvent); // once a day
-    }
+  // if lora is not enabled, schedule an event that takes care of extending the sleep time of the module
+  if (!LoRa.isInitialized()) {
+    timer.every(24 * 60 * 60, runLoraModuleSleepExtendEvent); // once a day
+  }
 }
 
 /**
@@ -303,7 +308,7 @@ void setupBOD33() {
 }
 
 /**
-* Initializes the CPU sleep mode.
+  Initializes the CPU sleep mode.
 */
 void initSleep() {
   // Set the sleep mode
@@ -311,8 +316,8 @@ void initSleep() {
 }
 
 /**
- * Initializes the GPS and leaves it on if succesful.
- * Returns true if successful.
+   Initializes the GPS and leaves it on if succesful.
+   Returns true if successful.
 */
 void initGps() {
   sodaq_gps.init(GPS_ENABLE);
@@ -326,46 +331,46 @@ void initGps() {
 }
 
 /**
-* Initializes the accelerometer functionality (interrupt on acceleration).
+  Initializes the accelerometer functionality (interrupt on acceleration).
 */
 void initAccelerometer() {
-    pinMode(ACCEL_INT1, INPUT);
-    attachInterrupt(ACCEL_INT1, accelerometerInt1Handler, CHANGE);
+  pinMode(ACCEL_INT1, INPUT);
+  attachInterrupt(ACCEL_INT1, accelerometerInt1Handler, CHANGE);
 
-    // Configure EIC to use GCLK1 which uses XOSC32K, XOSC32K is already running in standby
-    // This has to be done after the first call to attachInterrupt()
-    GCLK->CLKCTRL.reg = GCLK_CLKCTRL_ID(GCM_EIC) |
-        GCLK_CLKCTRL_GEN_GCLK1 |
-        GCLK_CLKCTRL_CLKEN;
+  // Configure EIC to use GCLK1 which uses XOSC32K, XOSC32K is already running in standby
+  // This has to be done after the first call to attachInterrupt()
+  GCLK->CLKCTRL.reg = GCLK_CLKCTRL_ID(GCM_EIC) |
+                      GCLK_CLKCTRL_GEN_GCLK1 |
+                      GCLK_CLKCTRL_CLKEN;
 
-    accelerometer.enable(true,
-        Sodaq_LIS3DE::NormalLowPower10Hz,
-        Sodaq_LIS3DE::XYZ,
-        Sodaq_LIS3DE::Scale8g,
-        true);
-    sodaq_wdt_safe_delay(100);
+  accelerometer.enable(true,
+                       Sodaq_LIS3DE::NormalLowPower10Hz,
+                       Sodaq_LIS3DE::XYZ,
+                       Sodaq_LIS3DE::Scale8g,
+                       true);
+  sodaq_wdt_safe_delay(100);
 
-    if (ACCELEROMETER_INTERRUPT) {
-      accelerometer.enableInterrupt1(
-        Sodaq_LIS3DE::XHigh | Sodaq_LIS3DE::XLow | Sodaq_LIS3DE::YHigh | Sodaq_LIS3DE::YLow | Sodaq_LIS3DE::ZHigh | Sodaq_LIS3DE::ZLow,
-        DEFAULT_MOVEMENT_PERCENTAGE * 8.0 / 100.0,
-        DEFAULT_MOVEMENT_DURATION,
-        Sodaq_LIS3DE::MovementRecognition);
-    }
+  if (ACCELEROMETER_INTERRUPT) {
+    accelerometer.enableInterrupt1(
+      Sodaq_LIS3DE::XHigh | Sodaq_LIS3DE::XLow | Sodaq_LIS3DE::YHigh | Sodaq_LIS3DE::YLow | Sodaq_LIS3DE::ZHigh | Sodaq_LIS3DE::ZLow,
+      DEFAULT_MOVEMENT_PERCENTAGE * 8.0 / 100.0,
+      DEFAULT_MOVEMENT_DURATION,
+      Sodaq_LIS3DE::MovementRecognition);
+  }
 }
 
 /**
- * Runs every time acceleration is over the limits
- * set by the user (if enabled).
+   Runs every time acceleration is over the limits
+   set by the user (if enabled).
 */
 void accelerometerInt1Handler() {
-    if (digitalRead(ACCEL_INT1)) {
-        if (ACCELEROMETER) {
-            setLedColor(YELLOW);
-        }
-
-        accelerationFlag = true;
+  if (digitalRead(ACCEL_INT1)) {
+    if (ACCELEROMETER) {
+      setLedColor(YELLOW);
     }
+
+    accelerationFlag = true;
+  }
 }
 
 /**
@@ -423,33 +428,33 @@ void loop() {
 }
 
 /**
- * Powers down all devices and puts the system to deep sleep.
- */
+   Powers down all devices and puts the system to deep sleep.
+*/
 void systemSleep() {
-    LORA_STREAM.flush();
+  LORA_STREAM.flush();
 
-    setLedColor(NONE);
-    // setGpsActive(false); // explicitly disable after resetting the pins
+  setLedColor(NONE);
+  // setGpsActive(false); // explicitly disable after resetting the pins
 
-    // go to sleep, unless USB is used for debugging
-    if (!DEBUG || ((long)&DEBUG_STREAM != (long)&SerialUSB)) {
-        noInterrupts();
-        if (!(sodaq_wdt_flag || minuteFlag)) {
-            interrupts();
+  // go to sleep, unless USB is used for debugging
+  if (!DEBUG || ((long)&DEBUG_STREAM != (long)&SerialUSB)) {
+    noInterrupts();
+    if (!(sodaq_wdt_flag || minuteFlag)) {
+      interrupts();
 
-            __WFI(); // SAMD sleep
-        }
-        interrupts();
+      __WFI(); // SAMD sleep
     }
+    interrupts();
+  }
 }
 
 /**
- * Wakes up the lora module to put it back to sleep, i.e. extends the sleep period
+   Wakes up the lora module to put it back to sleep, i.e. extends the sleep period
 */
 void runLoraModuleSleepExtendEvent(uint32_t now) {
-    debugPrintln("Extending LoRa module sleep period.");
+  debugPrintln("Extending LoRa module sleep period.");
 
-    LoRa.extendSleep();
+  LoRa.extendSleep();
 }
 
 bool getGpsFix() {

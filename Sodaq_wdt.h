@@ -9,7 +9,7 @@
 
 // Approximate periods supported by both platforms
 // The SAMD also supports 8ms and 16s.
-enum wdt_period : uint8_t 
+enum wdt_period : uint8_t
 {
 #ifdef ARDUINO_ARCH_AVR
 
@@ -24,7 +24,7 @@ enum wdt_period : uint8_t
   WDT_PERIOD_2X      = WDTO_2S,    // 2000ms = 2s
   WDT_PERIOD_4X      = WDTO_4S,    // 4000ms = 4s
   WDT_PERIOD_8X      = WDTO_8S     // 8000ms = 8s
-  
+
 #elif defined(ARDUINO_ARCH_SAMD)
 
   // See Arduino15/packages/arduino/tools/CMSIS/4.0.0-atmel/Device/ATMEL/samd21/include/component/wdt.h
@@ -42,7 +42,7 @@ enum wdt_period : uint8_t
   WDT_PERIOD_2X     = 8,   // 2048 cycles = 2s
   WDT_PERIOD_4X     = 9,   // 4096 cycles = 4s
   WDT_PERIOD_8X     = 10   // 8192 cycles = 8s
-  
+
 #endif
 };
 
