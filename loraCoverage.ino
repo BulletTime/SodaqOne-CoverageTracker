@@ -27,6 +27,7 @@
 #include "Enums.h"
 #include "LedColor.h"
 #include "LoRaHelper.h"
+#include "MyData.h"
 #include "MyTime.h"
 #include "RTCTimer.h"
 #include "RTCZero.h"
@@ -35,8 +36,12 @@
 #include "Sodaq_wdt.h"
 #include "Utils.h"
 
-#define DEBUG false
+#define DEBUG true
 #define DEBUG_GPS false
+#define DEBUG_LORA true
+
+#define RESEARCH true
+#define ENABLE_LED true
 
 #define VERSION "0.2.0"
 #define PROJECT_NAME "LoRa Coverage Logger"
@@ -48,8 +53,8 @@
 
 #define MAX_RTC_EPOCH_OFFSET 25
 
-#define ACCELEROMETER true
-#define ACCELEROMETER_INTERRUPT true
+#define ACCELEROMETER false
+#define ACCELEROMETER_INTERRUPT false
 #define DEFAULT_MOVEMENT_PERCENTAGE 10
 #define DEFAULT_MOVEMENT_DURATION 50 // d = x * 1/(10 Hz)
 
@@ -57,9 +62,9 @@
 #define DEFAULT_TEMPERATURE_SENSOR_OFFSET 33
 #define DEFAULT_LORA_PORT 2
 #define DEFAULT_IS_OTAA_ENABLED 1
-#define DEFAULT_DEVADDR_OR_DEVEUI "0000000000000000"
-#define DEFAULT_APPSKEY_OR_APPEUI "00000000000000000000000000000000"
-#define DEFAULT_NWSKEY_OR_APPKEY "00000000000000000000000000000000"
+#define DEFAULT_DEVADDR_OR_DEVEUI "00D723BA2DD33670"
+#define DEFAULT_APPSKEY_OR_APPEUI "70B3D57ED0008D1F"
+#define DEFAULT_NWSKEY_OR_APPKEY "3F7FEB7FA55182818F186C238A8D255B"
 #define DEFAULT_ADR_ON 0
 #define DEFAULT_ACK_ON 0
 #define DEFAULT_RECONNECT_ON_TRANSMISSION 1
@@ -116,10 +121,12 @@ void accelerometerInt1Handler();
 bool initLora(LoraInitConsoleMessages messages, LoraInitJoin join);
 void systemSleep();
 void runLoraModuleSleepExtendEvent(uint32_t now);
+void runGpsUpdateAndTransmitEvent(uint32_t now);
 bool getGpsFix();
 
 static void printCpuResetCause(Stream& stream);
 static void printBootUpMessage(Stream& stream);
+static void printMyDataMessage(Stream& stream);
 
 void setup() {
   // Allow power to remain on
@@ -150,6 +157,12 @@ void setup() {
   initRtc();
 
   Wire.begin();
+
+  // init myData
+  myData.read();
+  printMyDataMessage(CONSOLE_STREAM);
+  myData.setPower(DEFAULT_POWER);
+  myData.commit();
 
   // if allowed, init early for faster initial fix
   if (GPS) {
@@ -197,7 +210,7 @@ void setup() {
 
   if (getGpsFix()) {
     setLedColor(GREEN);
-    sodaq_wdt_safe_delay(800);
+    sodaq_wdt_safe_delay(1500);
   }
 }
 
@@ -266,6 +279,10 @@ void initRtcTimer() {
 */
 void resetRtcTimerEvents() {
   timer.clearAllEvents();
+
+  if (RESEARCH) {
+    timer.every(1 * 60, runGpsUpdateAndTransmitEvent);
+  }
 
   // Schedule the default fix event (if applicable)
   // if (params.getDefaultFixInterval() > 0) {
@@ -384,7 +401,7 @@ bool initLora(LoraInitConsoleMessages messages, LoraInitJoin join) {
     consolePrintln("Initializing LoRa...");
   }
 
-  if (DEBUG) {
+  if (DEBUG_LORA) {
     LoRaBee.setDiag(DEBUG_STREAM);
     LoRa.setDiag(DEBUG_STREAM);
   }
@@ -424,7 +441,25 @@ bool initLora(LoraInitConsoleMessages messages, LoraInitJoin join) {
 }
 
 void loop() {
+  if (sodaq_wdt_flag) {
+    // Reset watchdog
+    sodaq_wdt_reset();
+    sodaq_wdt_flag = false;
 
+    LoRa.loopHandler();
+  }
+
+  if (minuteFlag) {
+    if (ENABLE_LED) {
+        setLedColor(BLUE);
+    }
+
+    timer.update(); // handle scheduled events
+
+    minuteFlag = false;
+  }
+
+  systemSleep();
 }
 
 /**
@@ -457,7 +492,40 @@ void runLoraModuleSleepExtendEvent(uint32_t now) {
   LoRa.extendSleep();
 }
 
+void runGpsUpdateAndTransmitEvent(uint32_t now) {
+  debugPrintln("Updating gps location and transmitting it over LoRa.");
+
+  uint8_t size = 7;
+  uint8_t data[size];
+  if (sodaq_gps.scan(false, DEFAULT_TIMEOUT)) {
+    int32_t lat = sodaq_gps.getLat() * 10000;
+    int32_t lon = sodaq_gps.getLon() * 10000;
+    myData.addLocation(lat, lon);
+    myData.commit();
+    data[0] = lat >> 16;
+    data[1] = lat >> 8;
+    data[2] = lat;
+    data[3] = lon >> 16;
+    data[4] = lon >> 8;
+    data[5] = lon;
+    data[6] = DEFAULT_POWER;
+
+    // debugPrint("default port: ");
+    // debugPrintln(LoRa.getDefaultLoRaPort());
+
+    LoRa.transmit(data, size);
+
+    debugPrint("data: ");
+    for (uint8_t i = 0; i < sizeof(data); i++) {
+      debugPrint((char)NIBBLE_TO_HEX_CHAR(HIGH_NIBBLE(data[i])));
+      debugPrint((char)NIBBLE_TO_HEX_CHAR(LOW_NIBBLE(data[i])));
+    }
+    debugPrintln();
+  }
+}
+
 bool getGpsFix() {
+  debugPrintln("Searching for gps fix...");
   // scan for 5 minutes before giving up..
   if (sodaq_gps.scan(false, 300000)) {
     uint32_t epoch = time.mktime(sodaq_gps.getYear(), sodaq_gps.getMonth(), sodaq_gps.getDay(), sodaq_gps.getHour(), sodaq_gps.getMinute(), sodaq_gps.getSecond());
@@ -467,8 +535,13 @@ bool getGpsFix() {
       setNow(epoch);
     }
 
+    debugPrintln("Found first gps fix!");
+
     return true;
   }
+
+  debugPrintln("Did not found a fix :(");
+
   return false;
 }
 
@@ -489,6 +562,14 @@ static void printBootUpMessage(Stream& stream) {
 
   stream.print(" -> ");
   printCpuResetCause(stream);
+
+  stream.println();
+}
+
+static void printMyDataMessage(Stream& stream) {
+  stream.println("** My Saved Data **");
+  stream.print("Number of saved measurements: ");
+  stream.println(myData.getNumberOfMeasurements());
 
   stream.println();
 }
@@ -538,7 +619,6 @@ void getHWEUI() {
     if (initLora(LORA_INIT_SKIP_CONSOLE_MESSAGES, LORA_INIT_SKIP_JOIN)) {
       sodaq_wdt_safe_delay(10);
       uint8_t len = LoRa.getHWEUI(loraHWEui, sizeof(loraHWEui));
-
       if (len == sizeof(loraHWEui)) {
         isLoraHWEuiInitialized = true;
       }

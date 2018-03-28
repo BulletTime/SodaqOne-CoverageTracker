@@ -103,6 +103,7 @@ bool Sodaq_UBlox_GPS::scan(bool leave_on, uint32_t timeout)
 
   size_t fix_count = 0;
   while (!is_timedout(start, timeout)) {
+    sodaq_wdt_reset();
     if (!readLine()) {
       // TODO Maybe quit?
       continue;

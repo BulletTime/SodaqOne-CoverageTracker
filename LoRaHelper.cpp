@@ -177,6 +177,8 @@ uint8_t LoRaHelper::transmit(uint8_t* buffer, uint8_t size, int16_t overrideLoRa
 
   for (uint8_t i = 0; i < 1 + getRepeatTransmissionCount(); i++) {
 
+    sodaq_wdt_reset();
+
     if (_isAckOn) {
       result = _rn2483->sendReqAck(port, buffer, size, LORA_MAX_RETRIES);
     }
