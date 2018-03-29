@@ -175,6 +175,10 @@ uint8_t LoRaHelper::transmit(uint8_t* buffer, uint8_t size, int16_t overrideLoRa
   setActive(true);
   uint16_t port = overrideLoRaPort > -1 ? overrideLoRaPort : _defaultLoRaPort;
 
+  if (!_isAdrOn) {
+    _rn2483->setSpreadingFactor(_spreadingFactor);
+  }
+
   for (uint8_t i = 0; i < 1 + getRepeatTransmissionCount(); i++) {
 
     sodaq_wdt_reset();

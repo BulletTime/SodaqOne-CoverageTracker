@@ -17,4 +17,13 @@ enum LoraInitJoin {
   LORA_INIT_JOIN
 };
 
+enum SF {
+  SF7 = 7,
+  SF8,
+  SF9,
+  SF10,
+  SF11,
+  SF12
+};
+
 #endif

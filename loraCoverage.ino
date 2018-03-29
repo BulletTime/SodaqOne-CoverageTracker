@@ -32,44 +32,47 @@
 #include "RTCTimer.h"
 #include "RTCZero.h"
 #include "Sodaq_LIS3DE.h"
-#include "Sodaq_Ublox_GPS.h"
 #include "Sodaq_wdt.h"
+#include "Structs.h"
+#include "ublox.h"
 #include "Utils.h"
 
-#define DEBUG true
-#define DEBUG_GPS false
-#define DEBUG_LORA true
+#define DEBUG false
+#define DEBUG_LORA false
 
 #define RESEARCH true
 #define ENABLE_LED true
 
-#define VERSION "0.2.0"
+#define VERSION "0.2.1"
 #define PROJECT_NAME "LoRa Coverage Logger"
 #define STARTUP_DELAY 5000
 
+#define SETTINGS_DEFAULT_TIMEOUT 10 // 10 seconds
+
 #define GPS true
-#define DEFAULT_TIMEOUT 15000
-#define DEFAULT_MINIMUM_SATELLITES 4
+#define GPS_DEFAULT_TIMEOUT 30 // 15 seconds
+#define GPS_COMM_CHECK_TIMEOUT 3 // 3 seconds
+#define GPS_TIME_VALIDITY 0b00000011 // date and time (but not fully resolved)
+#define GPS_FIX_FLAGS 0b00000001 // just gnssFixOK
+#define GPS_MIN_SAT_COUNT 4
 
 #define MAX_RTC_EPOCH_OFFSET 25
 
-#define ACCELEROMETER false
-#define ACCELEROMETER_INTERRUPT false
-#define DEFAULT_MOVEMENT_PERCENTAGE 10
-#define DEFAULT_MOVEMENT_DURATION 50 // d = x * 1/(10 Hz)
+#define ACCELEROMETER true
+#define DEFAULT_MOVEMENT_PERCENTAGE 6
+#define DEFAULT_MOVEMENT_DURATION 50 // d = x * 1/(10 Hz) MAX: 127
 
-#define LORA true
 #define DEFAULT_TEMPERATURE_SENSOR_OFFSET 33
 #define DEFAULT_LORA_PORT 2
 #define DEFAULT_IS_OTAA_ENABLED 1
-#define DEFAULT_DEVADDR_OR_DEVEUI "00D723BA2DD33670"
-#define DEFAULT_APPSKEY_OR_APPEUI "70B3D57ED0008D1F"
-#define DEFAULT_NWSKEY_OR_APPKEY "3F7FEB7FA55182818F186C238A8D255B"
+#define DEFAULT_DEVADDR_OR_DEVEUI "0000000000000000"
+#define DEFAULT_APPSKEY_OR_APPEUI "0000000000000000"
+#define DEFAULT_NWSKEY_OR_APPKEY "00000000000000000000000000000000"
 #define DEFAULT_ADR_ON 0
 #define DEFAULT_ACK_ON 0
 #define DEFAULT_RECONNECT_ON_TRANSMISSION 1
 #define DEFAULT_REPEAT_TRANSMISSION_COUNT 0
-#define DEFAULT_SPREADING_FACTOR 7
+// #define DEFAULT_SPREADING_FACTOR 7
 #define DEFAULT_POWER 1
 
 #define DEBUG_STREAM SerialUSB
@@ -87,12 +90,18 @@
 #define LORA_RESET -1
 #endif
 
+struct GPSData gpsData;
+
 RTCZero rtc;
 RTCTimer timer;
-Time time;
 Sodaq_LIS3DE accelerometer;
+Time time;
+UBlox ublox;
+
+bool isGpsDataNew;
 
 volatile bool minuteFlag;
+volatile bool acceleration;
 volatile bool accelerationFlag;
 
 static uint8_t lastResetCause;
@@ -100,9 +109,12 @@ static bool isRtcInitialized;
 static bool isGpsInitialized;
 static bool isAccelerometerInitialized;
 static bool isDeviceInitialized;
+static int64_t rtcEpochDelta;
 
 static uint8_t loraHWEui[8];
 static bool isLoraHWEuiInitialized;
+
+static SF sfState = SF12;
 
 void setup();
 void loop();
@@ -115,14 +127,19 @@ void initRtcTimer();
 void resetRtcTimerEvents();
 void setupBOD33();
 void initSleep();
-void initGps();
+bool initGps();
+void setGpsActive(bool on);
 void initAccelerometer();
 void accelerometerInt1Handler();
 bool initLora(LoraInitConsoleMessages messages, LoraInitJoin join);
 void systemSleep();
 void runLoraModuleSleepExtendEvent(uint32_t now);
-void runGpsUpdateAndTransmitEvent(uint32_t now);
-bool getGpsFix();
+void runResearchEvent(uint32_t now);
+void runAccelerometerEvent(uint32_t now);
+void delegateNavPvt(NavigationPositionVelocityTimeSolution* NavPvt);
+bool getGpsFix(uint32_t timeout);
+bool getGpsCoordinates();
+void transmitLastData();
 
 static void printCpuResetCause(Stream& stream);
 static void printBootUpMessage(Stream& stream);
@@ -141,7 +158,7 @@ void setup() {
   // Setup brown-out detection
   setupBOD33();
 
-  sodaq_wdt_enable(WDT_PERIOD_8X);
+  sodaq_wdt_enable(WDT_PERIOD_4X);
   sodaq_wdt_reset();
 
   CONSOLE_STREAM.begin(BAUDRATE);
@@ -166,8 +183,7 @@ void setup() {
 
   // if allowed, init early for faster initial fix
   if (GPS) {
-    initGps();
-    isGpsInitialized = true;
+    isGpsInitialized = initGps();
   }
 
   initLora(LORA_INIT_SHOW_CONSOLE_MESSAGES, LORA_INIT_JOIN);
@@ -208,10 +224,17 @@ void setup() {
     CONSOLE_STREAM.end();
   }
 
-  if (getGpsFix()) {
+  if (GPS) {
+    if (getGpsFix(300)) {
+      setLedColor(GREEN);
+      sodaq_wdt_safe_delay(1500);
+    }
+  } else {
     setLedColor(GREEN);
     sodaq_wdt_safe_delay(1500);
   }
+
+  // resetRtcTimerEvents();
 }
 
 /**
@@ -232,6 +255,7 @@ void setNow(uint32_t newEpoch) {
   debugPrint(" to ");
   debugPrintln(newEpoch);
 
+  rtcEpochDelta = newEpoch - currentEpoch;
   rtc.setEpoch(newEpoch);
 
   timer.adjust(currentEpoch, newEpoch);
@@ -281,23 +305,10 @@ void resetRtcTimerEvents() {
   timer.clearAllEvents();
 
   if (RESEARCH) {
-    timer.every(1 * 60, runGpsUpdateAndTransmitEvent);
+    timer.every(1 * 60, runResearchEvent);
+  } else {
+    timer.every(5 * 60, runAccelerometerEvent);
   }
-
-  // Schedule the default fix event (if applicable)
-  // if (params.getDefaultFixInterval() > 0) {
-  //     timer.every(params.getDefaultFixInterval() * 60, runDefaultFixEvent);
-  // }
-
-  // check if the alternative fix event should be scheduled at all
-  // if (params.getAlternativeFixInterval() > 0) {
-  //     // Schedule the alternative fix event
-  //     timer.every(params.getAlternativeFixInterval() * 60, runAlternativeFixEvent);
-  // }
-
-  // if (isOnTheMoveInitialized) {
-  //     timer.every(params.getOnTheMoveFixInterval() * 60, runOnTheMoveFixEvent);
-  // }
 
   // if lora is not enabled, schedule an event that takes care of extending the sleep time of the module
   if (!LoRa.isInitialized()) {
@@ -336,15 +347,83 @@ void initSleep() {
    Initializes the GPS and leaves it on if succesful.
    Returns true if successful.
 */
-void initGps() {
-  sodaq_gps.init(GPS_ENABLE);
+bool initGps() {
+  pinMode(GPS_ENABLE, OUTPUT);
+  pinMode(GPS_TIMEPULSE, INPUT);
 
-  if (DEBUG_GPS) {
-    sodaq_gps.setDiag(DEBUG_STREAM);
+  // attempt to turn on and communicate with the GPS
+  ublox.enable();
+  ublox.flush();
+
+  uint32_t startTime = getNow();
+  bool found = false;
+  while (!found && (getNow() - startTime <= GPS_COMM_CHECK_TIMEOUT)) {
+    sodaq_wdt_reset();
+
+    found = ublox.exists();
   }
 
-  sodaq_gps.setMinNumSatellites(DEFAULT_MINIMUM_SATELLITES);
-  sodaq_gps.scan(true, 500);
+  // check for success
+  if (found) {
+    setGpsActive(true); // properly turn on before returning
+
+    return true;
+  }
+
+  consolePrintln("*** GPS not found!");
+  debugPrintln("*** GPS not found!");
+
+  // turn off before returning in case of failure
+  setGpsActive(false);
+
+  return false;
+}
+
+/**
+ * Turns the GPS on or off.
+ */
+void setGpsActive(bool on) {
+  sodaq_wdt_reset();
+
+  if (on) {
+    ublox.enable();
+    ublox.flush();
+
+    sodaq_wdt_safe_delay(80);
+
+    PortConfigurationDDC pcd;
+
+    uint8_t maxRetries = 6;
+    int8_t retriesLeft;
+
+    retriesLeft = maxRetries;
+    while (!ublox.getPortConfigurationDDC(&pcd) && (retriesLeft-- > 0)) {
+      debugPrintln("Retrying ublox.getPortConfigurationDDC(&pcd)...");
+      sodaq_wdt_safe_delay(15);
+    }
+    if (retriesLeft == -1) {
+      debugPrintln("ublox.getPortConfigurationDDC(&pcd) failed!");
+
+      return;
+    }
+
+    pcd.outProtoMask = 1; // Disable NMEA
+    retriesLeft = maxRetries;
+    while (!ublox.setPortConfigurationDDC(&pcd) && (retriesLeft-- > 0)) {
+      debugPrintln("Retrying ublox.setPortConfigurationDDC(&pcd)...");
+      sodaq_wdt_safe_delay(15);
+    }
+    if (retriesLeft == -1) {
+      debugPrintln("ublox.setPortConfigurationDDC(&pcd) failed!");
+
+      return;
+    }
+
+    ublox.CfgMsg(UBX_NAV_PVT, 1); // Navigation Position Velocity TimeSolution
+    ublox.funcNavPvt = delegateNavPvt;
+  } else {
+    ublox.disable();
+  }
 }
 
 /**
@@ -360,20 +439,21 @@ void initAccelerometer() {
                       GCLK_CLKCTRL_GEN_GCLK1 |
                       GCLK_CLKCTRL_CLKEN;
 
-  accelerometer.enable(true,
+  accelerometer.enable(false,
                        Sodaq_LIS3DE::NormalLowPower10Hz,
                        Sodaq_LIS3DE::XYZ,
-                       Sodaq_LIS3DE::Scale8g,
-                       true);
+                       Sodaq_LIS3DE::Scale2g,
+                       false);
+  // Turn on high-pass filter
+  accelerometer.enableHighPassFilter();
+
   sodaq_wdt_safe_delay(100);
 
-  if (ACCELEROMETER_INTERRUPT) {
-    accelerometer.enableInterrupt1(
-      Sodaq_LIS3DE::XHigh | Sodaq_LIS3DE::XLow | Sodaq_LIS3DE::YHigh | Sodaq_LIS3DE::YLow | Sodaq_LIS3DE::ZHigh | Sodaq_LIS3DE::ZLow,
-      DEFAULT_MOVEMENT_PERCENTAGE * 8.0 / 100.0,
-      DEFAULT_MOVEMENT_DURATION,
-      Sodaq_LIS3DE::MovementRecognition);
-  }
+  accelerometer.enableInterrupt1(
+    Sodaq_LIS3DE::XLow | Sodaq_LIS3DE::YLow | Sodaq_LIS3DE::ZLow,
+    DEFAULT_MOVEMENT_PERCENTAGE * 2.0 / 100.0,
+    DEFAULT_MOVEMENT_DURATION,
+    Sodaq_LIS3DE::AndCombination);
 }
 
 /**
@@ -381,13 +461,8 @@ void initAccelerometer() {
    set by the user (if enabled).
 */
 void accelerometerInt1Handler() {
-  if (digitalRead(ACCEL_INT1)) {
-    if (ACCELEROMETER) {
-      setLedColor(YELLOW);
-    }
-
-    accelerationFlag = true;
-  }
+  acceleration = !digitalRead(ACCEL_INT1);
+  accelerationFlag = true;
 }
 
 /**
@@ -420,7 +495,7 @@ bool initLora(LoraInitConsoleMessages messages, LoraInitJoin join) {
   LoRa.setReconnectOnTransmissionOn(DEFAULT_RECONNECT_ON_TRANSMISSION);
   LoRa.setDefaultLoRaPort(DEFAULT_LORA_PORT);
   LoRa.setRepeatTransmissionCount(DEFAULT_REPEAT_TRANSMISSION_COUNT);
-  LoRa.setSpreadingFactor(DEFAULT_SPREADING_FACTOR);
+  LoRa.setSpreadingFactor(SF12);
   LoRa.setPowerIndex(DEFAULT_POWER);
 
   if (join == LORA_INIT_JOIN) {
@@ -429,6 +504,18 @@ bool initLora(LoraInitConsoleMessages messages, LoraInitJoin join) {
     if (messages == LORA_INIT_SHOW_CONSOLE_MESSAGES) {
       if (result) {
         consolePrintln("LoRa initialized.");
+        if (RESEARCH) {
+          uint8_t dcycle = 7; // = (100/x) - 1
+          LoRaBee.setMacParam("ch dcycle 0 ", dcycle);
+          LoRaBee.setMacParam("ch dcycle 1 ", dcycle);
+          LoRaBee.setMacParam("ch dcycle 2 ", dcycle);
+          LoRaBee.setMacParam("ch dcycle 3 ", dcycle);
+          LoRaBee.setMacParam("ch dcycle 4 ", dcycle);
+          LoRaBee.setMacParam("ch dcycle 5 ", dcycle);
+          LoRaBee.setMacParam("ch dcycle 6 ", dcycle);
+          LoRaBee.setMacParam("ch dcycle 7 ", dcycle);
+          debugPrintln("Research: every channel [0-7] is set to 12.5%")
+        }
       }
       else {
         consolePrintln("LoRa initialization failed!");
@@ -447,6 +534,24 @@ void loop() {
     sodaq_wdt_flag = false;
 
     LoRa.loopHandler();
+  }
+
+  if (accelerationFlag) {
+    if (acceleration) {
+      setLedColor(MAGENTA);
+      sfState = SF12;
+      // sodaq_wdt_safe_delay(500);
+      debugPrintln("Movement detected .. -> sf reset");
+    } else {
+      if (ENABLE_LED) {
+        setLedColor(YELLOW);
+        // sodaq_wdt_safe_delay(500);
+      }
+
+      timer.update();
+    }
+
+    accelerationFlag = false;
   }
 
   if (minuteFlag) {
@@ -469,7 +574,7 @@ void systemSleep() {
   LORA_STREAM.flush();
 
   setLedColor(NONE);
-  // setGpsActive(false); // explicitly disable after resetting the pins
+  setGpsActive(false); // explicitly disable after resetting the pins
 
   // go to sleep, unless USB is used for debugging
   if (!DEBUG || ((long)&DEBUG_STREAM != (long)&SerialUSB)) {
@@ -492,57 +597,183 @@ void runLoraModuleSleepExtendEvent(uint32_t now) {
   LoRa.extendSleep();
 }
 
-void runGpsUpdateAndTransmitEvent(uint32_t now) {
-  debugPrintln("Updating gps location and transmitting it over LoRa.");
-
-  uint8_t size = 7;
-  uint8_t data[size];
-  if (sodaq_gps.scan(false, DEFAULT_TIMEOUT)) {
-    int32_t lat = sodaq_gps.getLat() * 10000;
-    int32_t lon = sodaq_gps.getLon() * 10000;
-    myData.addLocation(lat, lon);
-    myData.commit();
-    data[0] = lat >> 16;
-    data[1] = lat >> 8;
-    data[2] = lat;
-    data[3] = lon >> 16;
-    data[4] = lon >> 8;
-    data[5] = lon;
-    data[6] = DEFAULT_POWER;
-
-    // debugPrint("default port: ");
-    // debugPrintln(LoRa.getDefaultLoRaPort());
-
-    LoRa.transmit(data, size);
-
-    debugPrint("data: ");
-    for (uint8_t i = 0; i < sizeof(data); i++) {
-      debugPrint((char)NIBBLE_TO_HEX_CHAR(HIGH_NIBBLE(data[i])));
-      debugPrint((char)NIBBLE_TO_HEX_CHAR(LOW_NIBBLE(data[i])));
+void runResearchEvent(uint32_t now) {
+  if (!acceleration) {
+    if (getGpsCoordinates()) {
+      transmitLastData();
+      while (!acceleration && sfState != SF12) {
+        transmitLastData();
+      }
     }
-    debugPrintln();
   }
 }
 
-bool getGpsFix() {
-  debugPrintln("Searching for gps fix...");
-  // scan for 5 minutes before giving up..
-  if (sodaq_gps.scan(false, 300000)) {
-    uint32_t epoch = time.mktime(sodaq_gps.getYear(), sodaq_gps.getMonth(), sodaq_gps.getDay(), sodaq_gps.getHour(), sodaq_gps.getMinute(), sodaq_gps.getSecond());
+void runAccelerometerEvent(uint32_t now) {
+  if (!acceleration) {
+    if (sfState == SF12) {
+      if (getGpsCoordinates()) {
+        transmitLastData();
+      }
+    } else {
+      transmitLastData();
+    }
+  }
+}
+
+/**
+ *  Checks validity of data, adds valid points to the points list, syncs the RTC
+ */
+void delegateNavPvt(NavigationPositionVelocityTimeSolution* NavPvt) {
+  sodaq_wdt_reset();
+
+  if (!isGpsInitialized) {
+    debugPrintln("delegateNavPvt exiting because GPS is not initialized.");
+
+    return;
+  }
+
+  // note: db_printf gets enabled/disabled according to the "DEBUG" define (ublox.cpp)
+  ublox.db_printf("%4.4d-%2.2d-%2.2d %2.2d:%2.2d:%2.2d.%d valid=%2.2x lat=%d lon=%d sats=%d fixType=%2.2x\r\n",
+      NavPvt->year, NavPvt->month, NavPvt->day,
+      NavPvt->hour, NavPvt->minute, NavPvt->seconds, NavPvt->nano, NavPvt->valid,
+      NavPvt->lat, NavPvt->lon, NavPvt->numSV, NavPvt->fixType);
+
+  // sync the RTC time
+  if ((NavPvt->valid & GPS_TIME_VALIDITY) == GPS_TIME_VALIDITY) {
+    uint32_t epoch = time.mktime(NavPvt->year, NavPvt->month, NavPvt->day, NavPvt->hour, NavPvt->minute, NavPvt->seconds);
 
     // check if there is an actual offset before setting the RTC
     if (abs((int64_t)getNow() - (int64_t)epoch) > MAX_RTC_EPOCH_OFFSET) {
-      setNow(epoch);
+        setNow(epoch);
     }
+  }
 
-    debugPrintln("Found first gps fix!");
+  // check that the fix is OK and that it is a 3d fix or GNSS + dead reckoning combined
+  if (((NavPvt->flags & GPS_FIX_FLAGS) == GPS_FIX_FLAGS) && ((NavPvt->fixType == 3) || (NavPvt->fixType == 4))) {
+    gpsData.lat = NavPvt->lat;
+    gpsData.lon = NavPvt->lon;
+    gpsData.numSV = NavPvt->numSV;
+    isGpsDataNew = true;
+  }
+}
+
+bool getGpsFix(uint32_t timeout) {
+  debugPrintln("Searching for gps fix...");
+  if (!isGpsInitialized) {
+      debugPrintln("GPS is not initialized, exiting...");
+
+      return false;
+  }
+
+  bool isSuccessful = false;
+  setGpsActive(true);
+
+  gpsData.numSV = 0;
+  uint32_t startTime = getNow();
+  while (((getNow() - startTime) <= timeout) && (gpsData.numSV < GPS_MIN_SAT_COUNT)) {
+      sodaq_wdt_reset();
+      uint16_t bytes = ublox.available();
+
+      if (bytes) {
+          rtcEpochDelta = 0;
+          isGpsDataNew = false;
+          ublox.GetPeriodic(bytes); // calls the delegate method for passing results
+
+          startTime += rtcEpochDelta; // just in case the clock was changed (by the delegate in ublox.GetPeriodic)
+
+          // isGpsDataNew guarantees at least a 3d fix or GNSS + dead reckoning combined
+          // and is good enough to keep, but the while loop should keep trying until timeout or sat count larger than set
+          if (isGpsDataNew) {
+              isSuccessful = true;
+          }
+      }
+  }
+
+  setGpsActive(false); // turn off gps as soon as it is not needed
+
+  if (isSuccessful) {
+    debugPrintln("found gps fix");
+  } else {
+    debugPrintln("did not found gps fix");
+  }
+
+  return isSuccessful;
+}
+
+bool getGpsCoordinates() {
+  debugPrintln("Updating gps location");
+
+  if (getGpsFix(GPS_DEFAULT_TIMEOUT)) {
+    int32_t lat = gpsData.lat;
+    int32_t lon = gpsData.lon;
+
+    myData.addLocation(lat, lon);
+    // myData.commit();
 
     return true;
   }
 
-  debugPrintln("Did not found a fix :(");
-
   return false;
+}
+
+void transmitLastData() {
+  debugPrintln("Transmitting last location over LoRa.");
+
+  uint8_t sendSize;
+  uint8_t sendBuffer[51];
+
+  setLedColor(CYAN);
+
+  sendSize = myData.getLastData(&sendBuffer[0]);
+
+  LoRa.setSpreadingFactor(sfState);
+  debugPrint("\t- transmission with sf: ");
+  debugPrintln(sfState);
+
+  uint8_t result = LoRa.transmit(sendBuffer, sendSize);
+
+  debugPrint("\t -data: ");
+  for (uint8_t i = 0; i < sendSize; i++) {
+    debugPrint((char)NIBBLE_TO_HEX_CHAR(HIGH_NIBBLE(sendBuffer[i])));
+    debugPrint((char)NIBBLE_TO_HEX_CHAR(LOW_NIBBLE(sendBuffer[i])));
+  }
+  debugPrintln();
+
+  if (result == 0) {
+    switch (sfState) {
+      case SF7: {
+        myData.setSF(MyData::SF7b);
+        sfState = SF12;
+        break;
+      }
+      case SF8: {
+        myData.setSF(MyData::SF8b);
+        sfState = SF7;
+        break;
+      }
+      case SF9: {
+        myData.setSF(MyData::SF9b);
+        sfState = SF8;
+        break;
+      }
+      case SF10: {
+        myData.setSF(MyData::SF10b);
+        sfState = SF9;
+        break;
+      }
+      case SF11: {
+        myData.setSF(MyData::SF11b);
+        sfState = SF10;
+        break;
+      }
+      case SF12: {
+        myData.setSF(MyData::SF12b);
+        sfState = SF11;
+        break;
+      }
+    }
+    myData.commit();
+  }
 }
 
 /**
@@ -570,6 +801,19 @@ static void printMyDataMessage(Stream& stream) {
   stream.println("** My Saved Data **");
   stream.print("Number of saved measurements: ");
   stream.println(myData.getNumberOfMeasurements());
+
+  if (myData.getNumberOfMeasurements() > 0) {
+    unsigned long start = getNow();
+    while ((getNow() - start) <= SETTINGS_DEFAULT_TIMEOUT && stream.available() == 0) {
+      sodaq_wdt_reset();
+    }
+    String command = stream.readString();
+    command.trim();
+    if (command.compareTo("read data") == 0) {
+      // stream.println("printing all data:");
+      myData.print(stream);
+    }
+  }
 
   stream.println();
 }
