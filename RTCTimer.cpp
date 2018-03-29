@@ -22,7 +22,7 @@
    The RTCTimer can be used to implement a simple scheduler.
    It was inspired by the Arduino Timer library by Simon Monk.
 */
-
+#include <Arduino.h>
 #include "RTCTimer.h"
 //#include "Diag.h"
 

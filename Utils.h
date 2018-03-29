@@ -21,6 +21,8 @@
 #ifndef _UTILS_h
 #define _UTILS_h
 
+#define _BV(bit) (1 << (bit))
+
 #define BOOL_TO_ONOFF(b) (b ? "on" : "off")
 #define NIBBLE_TO_HEX_CHAR(i) ((i <= 9) ? ('0' + i) : ('A' - 10 + i))
 #define HIGH_NIBBLE(i) ((i >> 4) & 0x0F)

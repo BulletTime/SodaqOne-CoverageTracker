@@ -61,6 +61,9 @@ class Sodaq_LIS3DE
       Yen = 1,
       Xen = 0,
 
+      // CTRL_REG2
+      HP_IG1 = 0,
+
       // CTRL_REG3
       INT1_CLICK = 7,
       INT1_IG1 = 6,
@@ -73,6 +76,7 @@ class Sodaq_LIS3DE
       // CTRL_REG4
       BDU = 7,
       FS0 = 4,
+      HR = 3,
       ST0 = 1,
       SIM = 0,
 
@@ -154,6 +158,9 @@ class Sodaq_LIS3DE
     void disableInterrupt1();
     void enableInterrupt2(uint8_t axesEvents, float threshold, uint8_t duration, InterruptMode interruptMode = MovementRecognition);
     void disableInterrupt2();
+
+    void enableHighPassFilter();
+    void disableHighPassFilter();
 
     float getX() {
       return getGsFromScaledValue(readRegister(Sodaq_LIS3DE::OUT_X));

@@ -27,11 +27,12 @@
 
 #include <Arduino.h>
 
-#define SIZE_LAT_LON 1440 // 24h * 60min
+#define SIZE_LAT_LON 720// 12h * 60min
 
 struct LatLon {
   int32_t _latitude;
   int32_t _longitude;
+  uint8_t _sf;
 };
 
 struct MyData {
@@ -44,15 +45,32 @@ struct MyData {
   uint16_t _crc16;
 
 public:
+  enum SFBits {
+    NoSF = 0,
+    SF7b  = 0b000001,
+    SF8b  = 0b000010,
+    SF9b  = 0b000100,
+    SF10b = 0b001000,
+    SF11b = 0b010000,
+    SF12b = 0b100000
+  };
+
   void read();
   void commit(bool forced = false);
   void reset();
+
+  void print(Stream& stream);
 
   uint16_t getNumberOfMeasurements() const { return _amount; }
   uint8_t getPower() const { return _power; }
 
   void setPower(uint8_t power);
   bool addLocation(int32_t lat, int32_t lon);
+
+  void setSF(uint8_t byteValue);
+  void unsetSF(uint8_t byteValue);
+
+  uint8_t getLastData(uint8_t *buffer);
 };
 
 extern MyData myData;

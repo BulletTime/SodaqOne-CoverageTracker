@@ -129,6 +129,23 @@ void Sodaq_LIS3DE::disableInterrupt2()
   unsetRegisterBits(CTRL_REG6, _BV(INT2_IG2));
 }
 
+void Sodaq_LIS3DE::enableHighPassFilter()
+{
+  // Turn on high-pass filter
+  setRegisterBits(Sodaq_LIS3DE::CTRL_REG2, _BV(Sodaq_LIS3DE::HP_IG1));
+  // Is this necessary?
+  setRegisterBits(Sodaq_LIS3DE::CTRL_REG4, _BV(Sodaq_LIS3DE::BDU));
+  setRegisterBits(Sodaq_LIS3DE::CTRL_REG4, _BV(Sodaq_LIS3DE::HR));
+}
+
+void Sodaq_LIS3DE::disableHighPassFilter() {
+  // Turn on high-pass filter
+  unsetRegisterBits(Sodaq_LIS3DE::CTRL_REG2, _BV(Sodaq_LIS3DE::HP_IG1));
+  // Is this necessary?
+  unsetRegisterBits(Sodaq_LIS3DE::CTRL_REG4, _BV(Sodaq_LIS3DE::BDU));
+  unsetRegisterBits(Sodaq_LIS3DE::CTRL_REG4, _BV(Sodaq_LIS3DE::HR));
+}
+
 uint8_t Sodaq_LIS3DE::readRegister(Register reg)
 {
   _wire.beginTransmission(_address);
