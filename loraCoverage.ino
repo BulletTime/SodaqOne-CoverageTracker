@@ -139,7 +139,7 @@ void runAccelerometerEvent(uint32_t now);
 void delegateNavPvt(NavigationPositionVelocityTimeSolution* NavPvt);
 bool getGpsFix(uint32_t timeout);
 bool getGpsCoordinates();
-void transmitLastData();
+bool transmitLastData();
 
 static void printCpuResetCause(Stream& stream);
 static void printBootUpMessage(Stream& stream);
@@ -599,10 +599,12 @@ void runLoraModuleSleepExtendEvent(uint32_t now) {
 
 void runResearchEvent(uint32_t now) {
   if (!acceleration) {
-    if (getGpsCoordinates()) {
-      transmitLastData();
+    if (getGpsCoordinates() && transmitLastData()) {
       while (!acceleration && sfState != SF12) {
-        transmitLastData();
+        if (!transmitLastData()) {
+          sfState = SF12;
+          break;
+        }
       }
     }
   }
@@ -716,7 +718,7 @@ bool getGpsCoordinates() {
   return false;
 }
 
-void transmitLastData() {
+bool transmitLastData() {
   debugPrintln("Transmitting last location over LoRa.");
 
   uint8_t sendSize;
@@ -773,7 +775,11 @@ void transmitLastData() {
       }
     }
     myData.commit();
+
+    return true;
   }
+
+  return false;
 }
 
 /**
@@ -810,8 +816,11 @@ static void printMyDataMessage(Stream& stream) {
     String command = stream.readString();
     command.trim();
     if (command.compareTo("read data") == 0) {
-      // stream.println("printing all data:");
       myData.print(stream);
+    } else if (command.compareTo("clear data") == 0) {
+      myData.reset();
+      myData.setPower(DEFAULT_POWER);
+      myData.commit();
     }
   }
 
