@@ -43,7 +43,7 @@
 #define RESEARCH true
 #define ENABLE_LED true
 
-#define VERSION "0.2.1"
+#define VERSION "0.2.2"
 #define PROJECT_NAME "LoRa Coverage Logger"
 #define STARTUP_DELAY 5000
 
@@ -305,7 +305,7 @@ void resetRtcTimerEvents() {
   timer.clearAllEvents();
 
   if (RESEARCH) {
-    timer.every(1 * 60, runResearchEvent);
+    timer.every(30, runResearchEvent);
   } else {
     timer.every(5 * 60, runAccelerometerEvent);
   }
@@ -538,7 +538,9 @@ void loop() {
 
   if (accelerationFlag) {
     if (acceleration) {
-      setLedColor(MAGENTA);
+      if (ENABLE_LED) {
+        setLedColor(MAGENTA);
+      }
       sfState = SF12;
       // sodaq_wdt_safe_delay(500);
       debugPrintln("Movement detected .. -> sf reset");
