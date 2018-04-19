@@ -139,7 +139,7 @@ void runAccelerometerEvent(uint32_t now);
 void delegateNavPvt(NavigationPositionVelocityTimeSolution* NavPvt);
 bool getGpsFix(uint32_t timeout);
 bool getGpsCoordinates();
-bool transmitLastData();
+void transmitLastData();
 
 static void printCpuResetCause(Stream& stream);
 static void printBootUpMessage(Stream& stream);
@@ -305,7 +305,7 @@ void resetRtcTimerEvents() {
   timer.clearAllEvents();
 
   if (RESEARCH) {
-    timer.every(30, runResearchEvent);
+    timer.every(1 * 60, runResearchEvent);
   } else {
     timer.every(5 * 60, runAccelerometerEvent);
   }
@@ -601,12 +601,10 @@ void runLoraModuleSleepExtendEvent(uint32_t now) {
 
 void runResearchEvent(uint32_t now) {
   if (!acceleration) {
-    if (getGpsCoordinates() && transmitLastData()) {
+    if (getGpsCoordinates()) {
+      transmitLastData();
       while (!acceleration && sfState != SF12) {
-        if (!transmitLastData()) {
-          sfState = SF12;
-          break;
-        }
+        transmitLastData();
       }
     }
   }
@@ -720,7 +718,7 @@ bool getGpsCoordinates() {
   return false;
 }
 
-bool transmitLastData() {
+void transmitLastData() {
   debugPrintln("Transmitting last location over LoRa.");
 
   uint8_t sendSize;
@@ -743,7 +741,7 @@ bool transmitLastData() {
   }
   debugPrintln();
 
-  if (result == 0) {
+  if (result == NoError || result == NotConnected) {
     switch (sfState) {
       case SF7: {
         myData.setSF(MyData::SF7b);
@@ -777,11 +775,7 @@ bool transmitLastData() {
       }
     }
     myData.commit();
-
-    return true;
   }
-
-  return false;
 }
 
 /**
