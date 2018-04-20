@@ -533,7 +533,7 @@ void loop() {
     sodaq_wdt_reset();
     sodaq_wdt_flag = false;
 
-    LoRa.loopHandler();
+    // LoRa.loopHandler();
   }
 
   if (accelerationFlag) {
@@ -550,7 +550,9 @@ void loop() {
         // sodaq_wdt_safe_delay(500);
       }
 
-      timer.update();
+      // if (RESEARCH) (
+      //   timer.update();
+      // )
     }
 
     accelerationFlag = false;
@@ -741,7 +743,7 @@ void transmitLastData() {
   }
   debugPrintln();
 
-  if (result == NoError || result == NotConnected) {
+  if (result == NoError) {
     switch (sfState) {
       case SF7: {
         myData.setSF(MyData::SF7b);
