@@ -263,6 +263,8 @@ bool LoRaHelper::join()
 
   _rn2483->wakeUp();
 
+  //TODO maybe set sf to 12?
+
   bool result;
   if (_isOtaaOn) {
     result = joinOtaa();

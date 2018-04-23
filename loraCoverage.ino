@@ -43,7 +43,7 @@
 #define RESEARCH true
 #define ENABLE_LED true
 
-#define VERSION "0.2.2"
+#define VERSION "0.2.3"
 #define PROJECT_NAME "LoRa Coverage Logger"
 #define STARTUP_DELAY 5000
 
@@ -550,6 +550,8 @@ void loop() {
         // sodaq_wdt_safe_delay(500);
       }
 
+      rtc.setAlarmSeconds(rtc.getSeconds());
+
       // if (RESEARCH) (
       //   timer.update();
       // )
@@ -602,12 +604,10 @@ void runLoraModuleSleepExtendEvent(uint32_t now) {
 }
 
 void runResearchEvent(uint32_t now) {
-  if (!acceleration) {
-    if (getGpsCoordinates()) {
+  if (getGpsCoordinates() && !acceleration) {
+    transmitLastData();
+    while (sfState != SF12 && !acceleration) {
       transmitLastData();
-      while (!acceleration && sfState != SF12) {
-        transmitLastData();
-      }
     }
   }
 }
@@ -615,7 +615,7 @@ void runResearchEvent(uint32_t now) {
 void runAccelerometerEvent(uint32_t now) {
   if (!acceleration) {
     if (sfState == SF12) {
-      if (getGpsCoordinates()) {
+      if (getGpsCoordinates() && !acceleration) {
         transmitLastData();
       }
     } else {
