@@ -43,7 +43,7 @@
 #define RESEARCH true
 #define ENABLE_LED true
 
-#define VERSION "0.2.3"
+#define VERSION "0.2.5"
 #define PROJECT_NAME "LoRa Coverage Logger"
 #define STARTUP_DELAY 5000
 
@@ -63,7 +63,7 @@
 #define DEFAULT_MOVEMENT_DURATION 50 // d = x * 1/(10 Hz) MAX: 127
 
 #define DEFAULT_TEMPERATURE_SENSOR_OFFSET 33
-#define DEFAULT_LORA_PORT 2
+#define DEFAULT_LORA_PORT 1
 #define DEFAULT_IS_OTAA_ENABLED 1
 #define DEFAULT_DEVADDR_OR_DEVEUI "0000000000000000"
 #define DEFAULT_APPSKEY_OR_APPEUI "0000000000000000"
@@ -305,7 +305,7 @@ void resetRtcTimerEvents() {
   timer.clearAllEvents();
 
   if (RESEARCH) {
-    timer.every(1 * 60, runResearchEvent);
+    timer.every(10, runResearchEvent);
   } else {
     timer.every(5 * 60, runAccelerometerEvent);
   }
@@ -538,23 +538,27 @@ void loop() {
 
   if (accelerationFlag) {
     if (acceleration) {
+      rtc.disableAlarm();
+
       if (ENABLE_LED) {
         setLedColor(MAGENTA);
+        sodaq_wdt_safe_delay(500);
       }
+
       sfState = SF12;
-      // sodaq_wdt_safe_delay(500);
       debugPrintln("Movement detected .. -> sf reset");
     } else {
+      rtc.setAlarmSeconds(rtc.getSeconds() - 1);
+      rtc.enableAlarm(RTCZero::MATCH_SS);
+
       if (ENABLE_LED) {
         setLedColor(YELLOW);
-        // sodaq_wdt_safe_delay(500);
+        sodaq_wdt_safe_delay(500);
       }
 
-      rtc.setAlarmSeconds(rtc.getSeconds());
-
-      // if (RESEARCH) (
-      //   timer.update();
-      // )
+      if (RESEARCH) {
+        minuteFlag = true;
+      }
     }
 
     accelerationFlag = false;
@@ -585,7 +589,7 @@ void systemSleep() {
   // go to sleep, unless USB is used for debugging
   if (!DEBUG || ((long)&DEBUG_STREAM != (long)&SerialUSB)) {
     noInterrupts();
-    if (!(sodaq_wdt_flag || minuteFlag)) {
+    if (!(sodaq_wdt_flag || minuteFlag || accelerationFlag)) {
       interrupts();
 
       __WFI(); // SAMD sleep
@@ -674,7 +678,7 @@ bool getGpsFix(uint32_t timeout) {
 
   gpsData.numSV = 0;
   uint32_t startTime = getNow();
-  while (((getNow() - startTime) <= timeout) && (gpsData.numSV < GPS_MIN_SAT_COUNT)) {
+  while (!acceleration && ((getNow() - startTime) <= timeout) && (gpsData.numSV < GPS_MIN_SAT_COUNT)) {
       sodaq_wdt_reset();
       uint16_t bytes = ublox.available();
 
