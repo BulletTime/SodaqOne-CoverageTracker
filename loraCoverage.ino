@@ -44,7 +44,7 @@
 #define RESEARCH true
 #define ENABLE_LED true
 
-#define VERSION "0.2.5"
+#define VERSION "0.2.6"
 #define PROJECT_NAME "LoRa Coverage Logger"
 #define STARTUP_DELAY 5000
 
