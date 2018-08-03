@@ -39,6 +39,7 @@
 
 #define DEBUG false
 #define DEBUG_LORA false
+#define LOW_POWER false
 
 #define RESEARCH true
 #define ENABLE_LED true
@@ -144,6 +145,8 @@ void transmitLastData();
 static void printCpuResetCause(Stream& stream);
 static void printBootUpMessage(Stream& stream);
 static void printMyDataMessage(Stream& stream);
+
+void(* resetFunc) (void) = 0;
 
 void setup() {
   // Allow power to remain on
@@ -519,6 +522,7 @@ bool initLora(LoraInitConsoleMessages messages, LoraInitJoin join) {
       }
       else {
         consolePrintln("LoRa initialization failed!");
+        resetFunc();
       }
     }
   }
@@ -584,8 +588,10 @@ void systemSleep() {
   LORA_STREAM.flush();
 
   setLedColor(NONE);
-  setGpsActive(false); // explicitly disable after resetting the pins
-
+  if (LOW_POWER) {
+    setGpsActive(false); // explicitly disable after resetting the pins
+  }
+  
   // go to sleep, unless USB is used for debugging
   if (!DEBUG || ((long)&DEBUG_STREAM != (long)&SerialUSB)) {
     noInterrupts();
@@ -697,7 +703,9 @@ bool getGpsFix(uint32_t timeout) {
       }
   }
 
-  setGpsActive(false); // turn off gps as soon as it is not needed
+  if (LOW_POWER) {
+    setGpsActive(false); // turn off gps as soon as it is not needed
+  }
 
   if (isSuccessful) {
     debugPrintln("found gps fix");

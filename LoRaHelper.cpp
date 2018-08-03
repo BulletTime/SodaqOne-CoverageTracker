@@ -264,6 +264,7 @@ bool LoRaHelper::join()
   _rn2483->wakeUp();
 
   //TODO maybe set sf to 12?
+  _rn2483->setSpreadingFactor(12);
 
   bool result;
   if (_isOtaaOn) {
